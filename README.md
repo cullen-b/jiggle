@@ -8,7 +8,8 @@ Like it? [Buy me a coffee](https://payme.cullenbaker.com).
 
 Shake the mouse anywhere and your Dock apps appear in a ring around the pointer. The ring is a pie:
 click anywhere in an app's slice to open (or switch to) it. As you move out toward an app, its slice widens and
-it grows while the far side makes room, so the app you're heading for gets easier to hit. Right-click an app for its Dock menu (Keep in /
+it grows while the far side makes room, so the app you're heading for gets easier to hit. Drag an app around the
+ring to reorder it; the order is yours and never changes unless you drag (new apps join at the end). Right-click an app for its Dock menu (Keep in /
 Remove from Dock, Show in Finder, Hide, Quit, and Force Quit with Option). Click outside the ring or press
 Esc to close it.
 
@@ -54,6 +55,7 @@ time the ring opens; no restart needed.
 | `RingOpacity` | int, 10–100 | `80` | Opacity of the ring's background, in percent |
 | `ExtraApps` | array of `.app` paths | empty | Apps always shown in the ring, even when closed and not in the Dock |
 | `HiddenApps` | array of `.app` paths | empty | Apps never shown in the ring, even when open or in the Dock |
+| `AppOrder` | array of `.app` paths | filled in as apps first appear | The ring's order, clockwise from 12 o'clock. Apps not listed go at the end; dragging in the ring rewrites it |
 | `Shortcut` | string | unset (off) | System-wide shortcut that opens and closes the ring, e.g. `ctrl+opt+space`. Modifiers: `cmd`, `ctrl`, `opt`, `shift`; key: a letter, digit, `space`, `return`, `tab`, `f1`–`f20`, an arrow (`left`…), or `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `quote`, `backslash`, `grave`, `leftbracket`, `rightbracket`, `delete`. Needs `cmd`, `ctrl` or `opt` unless it's an F-key |
 
 ```sh
