@@ -690,6 +690,7 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
             settings::reload();
             m.shake = shake_params(settings::shake_sensitivity());
             m.shake_checked = Some(now);
+            dock::set_hidden(settings::hide_dock());
         }
         let Some(shake) = m.shake else { return Act::Nothing };
         let flips = m.x.feed(dx, now, &shake).max(m.y.feed(dy, now, &shake));
@@ -1035,6 +1036,7 @@ fn main() {
     });
     install_tap();
     settings::install_menu(mtm);
+    dock::set_hidden(settings::hide_dock());
     app.run();
 }
 

@@ -43,6 +43,11 @@ define_class!(
             settings::changed();
         }
 
+        #[unsafe(method(toggleHideDock:))]
+        fn toggle_hide_dock(&self, button: &NSButton) {
+            settings::set_hide_dock(button.state() == NSControlStateValueOn);
+        }
+
         // Live while dragging, so only the label updates here (rebuilding would yank the slider away).
         #[unsafe(method(opacityChanged:))]
         fn opacity_changed(&self, slider: &NSSlider) {
@@ -250,7 +255,7 @@ fn rebuild(mtm: MainThreadMarker) {
         let hidden = settings::hidden_apps();
         let recording = shortcut::is_recording();
         let hint = recording && SHORTCUT_HINT.with(Cell::get);
-        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0 + 22.0 + 28.0 + 18.0 + 22.0
+        let height = MARGIN + 24.0 + 6.0 + 24.0 + 18.0 + 22.0 + 28.0 + 22.0 + 22.0 + 28.0 + 18.0 + 22.0
             + list_height(apps.len())
             + list_height(hidden.len())
             + 22.0 + 30.0 + if hint { 22.0 } else { 0.0 } + 20.0 + 48.0 + MARGIN;
@@ -268,6 +273,17 @@ fn rebuild(mtm: MainThreadMarker) {
         };
         open_only.setState(if settings::open_apps_only() { NSControlStateValueOn } else { NSControlStateValueOff });
         place(&content, &mut top, &open_only, MARGIN, inner, 24.0, true);
+        top -= 6.0;
+        let hide_dock = unsafe {
+            NSButton::checkboxWithTitle_target_action(
+                &NSString::from_str("Hide the Dock (it comes back when Jiggle quits)"),
+                Some(target),
+                Some(sel!(toggleHideDock:)),
+                mtm,
+            )
+        };
+        hide_dock.setState(if settings::hide_dock() { NSControlStateValueOn } else { NSControlStateValueOff });
+        place(&content, &mut top, &hide_dock, MARGIN, inner, 24.0, true);
         top -= 18.0;
 
         let heading = label("Ring opacity", mtm);

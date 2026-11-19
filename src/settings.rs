@@ -32,6 +32,7 @@ const KEY_SHORTCUT: &str = "Shortcut";
 const KEY_HIDDEN_APPS: &str = "HiddenApps";
 const KEY_APP_ORDER: &str = "AppOrder";
 const KEY_SHAKE: &str = "ShakeSensitivity";
+const KEY_HIDE_DOCK: &str = "HideDock";
 pub const DEFAULT_SHAKE: isize = 3;
 pub const MAX_SHAKE: isize = 5;
 const DEFAULT_OPACITY: isize = 80;
@@ -52,6 +53,15 @@ pub fn open_apps_only() -> bool {
 
 pub fn set_open_apps_only(on: bool) {
     defaults().setBool_forKey(on, &NSString::from_str(KEY_OPEN_ONLY));
+}
+
+pub fn hide_dock() -> bool {
+    defaults().boolForKey(&NSString::from_str(KEY_HIDE_DOCK))
+}
+
+pub fn set_hide_dock(on: bool) {
+    defaults().setBool_forKey(on, &NSString::from_str(KEY_HIDE_DOCK));
+    crate::dock::set_hidden(on);
 }
 
 /// Opacity of the ring's background, 0.0 (icons float on their own) to 1.0.
@@ -340,7 +350,9 @@ fn sync() {
 }
 
 /// Under the LaunchAgent (KeepAlive), unload the job so launchd doesn't relaunch us; it loads again at next login.
+/// A hidden Dock comes back while Jiggle isn't running, so nobody is left without either.
 fn quit() -> ! {
+    crate::dock::set_hidden(false);
     if std::env::var("XPC_SERVICE_NAME").as_deref() == Ok("local.jiggle") {
         let _ = std::process::Command::new("/bin/launchctl").args(["remove", "local.jiggle"]).status();
     }

@@ -1,4 +1,5 @@
-//! Reads and edits the Dock's pinned apps (com.apple.dock "persistent-apps"), like dockutil does.
+//! Reads and edits the Dock's pinned apps (com.apple.dock "persistent-apps"), like dockutil does,
+//! and can hide the Dock entirely.
 
 use objc2::msg_send;
 use objc2::rc::Retained;
@@ -95,4 +96,55 @@ mod tests {
         assert!(paths.iter().all(|p| p.starts_with('/')), "{paths:?}");
         eprintln!("{} pinned apps, first: {:?}", paths.len(), paths.first());
     }
+}
+
+/// The Dock's own auto-hide keys, saved in our settings while Jiggle hides the Dock.
+const HIDE_KEYS: [&str; 2] = ["autohide", "autohide-delay"];
+const SAVED_KEY: &str = "DockBeforeHiding";
+/// Auto-hide with a delay this long (seconds) keeps the Dock out of sight, even when the pointer reaches the edge.
+const HIDE_DELAY: &str = "1000";
+
+/// Hides the Dock (`hide`) or puts the user's own auto-hide settings back. Does nothing if it's already that way.
+pub fn set_hidden(hide: bool) {
+    let ours = NSUserDefaults::standardUserDefaults();
+    let saved_key = NSString::from_str(SAVED_KEY);
+    let saved = ours.dictionaryForKey(&saved_key);
+    if hide == saved.is_some() {
+        return;
+    }
+    if hide {
+        let dock = dock_domain();
+        let (mut keys, mut vals) = (Vec::new(), Vec::new());
+        for k in HIDE_KEYS {
+            let key = NSString::from_str(k);
+            let v: Option<Retained<AnyObject>> = dock.as_ref().and_then(|d| unsafe { msg_send![&**d, objectForKey: &*key] });
+            if let Some(v) = v {
+                keys.push(key);
+                vals.push(v);
+            }
+        }
+        let key_refs: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
+        let val_refs: Vec<&AnyObject> = vals.iter().map(|v| &**v).collect();
+        let before = NSDictionary::from_slices(&key_refs, &val_refs);
+        unsafe { ours.setObject_forKey(Some(&before), &saved_key) };
+        dock_defaults(&["write", "com.apple.dock", "autohide", "-bool", "true"]);
+        dock_defaults(&["write", "com.apple.dock", "autohide-delay", "-float", HIDE_DELAY]);
+    } else {
+        let saved = saved.expect("checked above");
+        for k in HIDE_KEYS {
+            let v: Option<Retained<AnyObject>> = unsafe { msg_send![&*saved, objectForKey: &*NSString::from_str(k)] };
+            let text = v.map(|v| unsafe { msg_send![&*v, description] }).map(|d: Retained<NSString>| d.to_string());
+            match (k, text) {
+                ("autohide", Some(t)) => dock_defaults(&["write", "com.apple.dock", k, "-bool", if t == "0" { "false" } else { "true" }]),
+                (_, Some(t)) => dock_defaults(&["write", "com.apple.dock", k, "-float", &t]),
+                (_, None) => dock_defaults(&["delete", "com.apple.dock", k]),
+            }
+        }
+        ours.removeObjectForKey(&saved_key);
+    }
+    let _ = std::process::Command::new("/usr/bin/killall").arg("Dock").status();
+}
+
+fn dock_defaults(args: &[&str]) {
+    let _ = std::process::Command::new("/usr/bin/defaults").args(args).stderr(std::process::Stdio::null()).status();
 }
