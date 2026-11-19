@@ -30,6 +30,7 @@ const KEY_OPACITY: &str = "RingOpacity";
 const KEY_EXTRA_APPS: &str = "ExtraApps";
 const KEY_SHORTCUT: &str = "Shortcut";
 const KEY_HIDDEN_APPS: &str = "HiddenApps";
+const KEY_APP_ORDER: &str = "AppOrder";
 const DEFAULT_OPACITY: isize = 80;
 pub const MIN_OPACITY: isize = 10;
 const OPACITIES: [isize; 5] = [20, 40, 60, 80, 100];
@@ -68,6 +69,12 @@ fn read_list(key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn write_list(key: &str, apps: &[String]) {
+    let strings: Vec<Retained<NSString>> = apps.iter().map(|p| NSString::from_str(p)).collect();
+    let array = NSArray::from_retained_slice(&strings);
+    unsafe { defaults().setObject_forKey(Some(&array), &NSString::from_str(key)) };
+}
+
 /// Adds (`on`) or removes `path` from the list stored under `key`.
 fn set_in_list(key: &str, path: &str, on: bool) {
     let mut apps = read_list(key);
@@ -75,9 +82,16 @@ fn set_in_list(key: &str, path: &str, on: bool) {
     if on {
         apps.push(path.to_string());
     }
-    let strings: Vec<Retained<NSString>> = apps.iter().map(|p| NSString::from_str(p)).collect();
-    let array = NSArray::from_retained_slice(&strings);
-    unsafe { defaults().setObject_forKey(Some(&array), &NSString::from_str(key)) };
+    write_list(key, &apps);
+}
+
+/// The ring's app order (every app ever shown, in order); see `order.rs`.
+pub fn app_order() -> Vec<String> {
+    read_list(KEY_APP_ORDER)
+}
+
+pub fn set_app_order(order: &[String]) {
+    write_list(KEY_APP_ORDER, order);
 }
 
 /// Apps the user added to the ring themselves; shown even when closed and not in the Dock.

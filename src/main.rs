@@ -5,6 +5,7 @@
 
 mod appmenu;
 mod dock;
+mod order;
 mod settings;
 mod settings_window;
 mod shortcut;
@@ -45,6 +46,9 @@ const AIM_SPREAD: f64 = 0.9; // how far, in slots, the growth reaches toward nei
 const AIM_ICON_GROW: f64 = 0.45;
 const AIM_ICON_SHRINK: f64 = 0.12;
 const SELECTED_BONUS: f64 = 0.1;
+// Moving this far with the button down turns a click on an app into a drag that reorders the ring.
+const DRAG_THRESHOLD: f64 = 6.0;
+const DRAG_SCALE: f64 = 1.2;
 
 // CoreGraphics / CoreFoundation / HIServices FFI (just what the event tap needs).
 type TapCallback = unsafe extern "C" fn(*mut c_void, u32, *mut c_void, *mut c_void) -> *mut c_void;
@@ -141,8 +145,19 @@ struct Anim {
     scales: Vec<f64>,
 }
 
+/// A left button press on an app: a click if released in place, a drag if it moves.
+struct Press {
+    start: NSPoint,
+    index: usize,
+    dragging: bool,
+}
+
 struct Model {
     apps: Vec<App>,
+    press: Option<Press>,
+    // While dragging: the dragged app's current slot, and the pointer (screen coordinates).
+    drag: Option<usize>,
+    drag_point: NSPoint,
     opacity: f64,
     anim: Anim,
     icons: HashMap<String, Retained<NSImage>>,
@@ -169,6 +184,9 @@ struct Ui {
 thread_local! {
     static MODEL: RefCell<Model> = RefCell::new(Model {
         apps: Vec::new(),
+        press: None,
+        drag: None,
+        drag_point: NSPoint::new(0.0, 0.0),
         opacity: 0.8,
         anim: Anim {
             running: false,
@@ -342,6 +360,9 @@ fn draw(bounds: NSRect) {
         // Icons start a little inward and ease out to the ring as it appears.
         let r = m.radius * (0.82 + 0.18 * a.appear);
         for (i, app) in m.apps.iter().enumerate() {
+            if m.drag == Some(i) {
+                continue;
+            }
             let ang = a.centers.get(i).copied().unwrap_or_else(|| slot_angle(i, n));
             let p = NSPoint::new(c.x + r * ang.cos(), c.y + r * ang.sin());
             let size = ICON * a.scales.get(i).copied().unwrap_or(1.0);
@@ -351,6 +372,15 @@ fn draw(bounds: NSRect) {
                 let dot = NSPoint::new(p.x, p.y - size / 2.0 - 4.0);
                 NSBezierPath::bezierPathWithOvalInRect(square(dot, 2.0)).fill();
             }
+        }
+
+        // The app being dragged rides on the pointer, lifted a little, above everything else.
+        if let Some(app) = m.drag.and_then(|i| m.apps.get(i)) {
+            let p = NSPoint::new(c.x + m.drag_point.x - m.center.x, c.y + m.drag_point.y - m.center.y);
+            let size = ICON * DRAG_SCALE;
+            NSColor::colorWithWhite_alpha(0.0, 0.25).setFill();
+            NSBezierPath::bezierPathWithOvalInRect(square(NSPoint::new(p.x, p.y - 6.0), size * 0.48)).fill();
+            app.icon.drawInRect(square(p, size / 2.0));
         }
 
         // The aimed app's name on a soft pill, readable at any ring opacity.
@@ -485,17 +515,22 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
     paths.extend(settings::extra_apps().into_iter().filter(|p| extras.contains(p)));
     paths.extend(running.iter().cloned());
 
-    let fm = NSFileManager::defaultManager();
     let mut seen = HashSet::new();
+    paths.retain(|p| {
+        let running = running_set.contains(p.as_str());
+        !hidden.contains(p) && !(open_only && !running && !extras.contains(p)) && seen.insert(p.clone())
+    });
+    // The user's saved order decides where everything goes; first-seen apps join at the end.
+    let saved = settings::app_order();
+    let (paths, order) = order::apply(&saved, paths);
+    if order != saved {
+        settings::set_app_order(&order);
+    }
+
+    let fm = NSFileManager::defaultManager();
     let mut apps = Vec::new();
     for path in paths {
         let running = running_set.contains(path.as_str());
-        if hidden.contains(&path) {
-            continue;
-        }
-        if (open_only && !running && !extras.contains(&path)) || !seen.insert(path.clone()) {
-            continue;
-        }
         let ns = NSString::from_str(&path);
         let icon = icons.entry(path.clone()).or_insert_with(|| ws.iconForFile(&ns)).clone();
         apps.push(App {
@@ -578,6 +613,9 @@ fn hide() {
         let mut m = m.borrow_mut();
         let was_visible = m.visible;
         m.visible = false;
+        // A press or drag in progress ends with the ring; releasing later does nothing.
+        m.press = None;
+        m.drag = None;
         m.x = Axis::default();
         m.y = Axis::default();
         m.cooldown = Instant::now() + COOLDOWN;
@@ -688,6 +726,102 @@ fn show_app_menu() {
     hide();
 }
 
+/// Left button down: on an app it starts a press (click or drag, decided later); elsewhere it closes the ring.
+fn on_left_down(p: NSPoint) -> bool {
+    let (visible, on_app) = MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        if !m.visible {
+            return (false, false);
+        }
+        match m.selected {
+            Some(index) => {
+                m.press = Some(Press { start: p, index, dragging: false });
+                (true, true)
+            }
+            None => {
+                m.swallow_up = true;
+                (true, false)
+            }
+        }
+    });
+    if visible && !on_app {
+        hide();
+    }
+    visible
+}
+
+/// Dragging with the button down: past a few points it picks the app up and slides it to the slot under the pointer.
+fn on_drag(p: NSPoint) {
+    let moved = MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        let m = &mut *m;
+        let Some(press) = m.press.as_mut() else { return false };
+        if !press.dragging {
+            if (p.x - press.start.x).hypot(p.y - press.start.y) < DRAG_THRESHOLD {
+                return false;
+            }
+            press.dragging = true;
+            m.drag = Some(press.index);
+            m.selected = None;
+            m.aim = 0.0;
+        }
+        m.drag_point = p;
+        let n = m.apps.len();
+        let (Some(from), true) = (m.drag, n > 1) else { return true };
+        let step = TAU / n as f64;
+        let angle = (p.y - m.center.y).atan2(p.x - m.center.x);
+        let to = (((FRAC_PI_2 - angle) / step).round() as i64).rem_euclid(n as i64) as usize;
+        if to != from {
+            // Move the app and its animation state together, so every icon glides from where it is.
+            let app = m.apps.remove(from);
+            m.apps.insert(to, app);
+            let a = &mut m.anim;
+            for v in [&mut a.centers, &mut a.widths, &mut a.scales] {
+                let x = v.remove(from);
+                v.insert(to, x);
+            }
+            m.drag = Some(to);
+        }
+        true
+    });
+    if moved {
+        start_anim();
+    }
+}
+
+/// Left button up: a press that didn't move opens the app; a drag drops it and saves the new order.
+fn on_left_up() -> bool {
+    enum Done {
+        Open(Retained<NSURL>),
+        Dropped,
+    }
+    let done = MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        let press = m.press.take()?;
+        if !press.dragging {
+            return m.apps.get(press.index).map(|a| Done::Open(a.url.clone()));
+        }
+        let dragged = m.drag.take().and_then(|i| m.apps.get(i)).map(|a| a.path.clone());
+        if let Some(dragged) = dragged {
+            let visible: Vec<String> = m.apps.iter().map(|a| a.path.clone()).collect();
+            settings::set_app_order(&order::after_move(&settings::app_order(), &visible, &dragged));
+        }
+        Some(Done::Dropped)
+    });
+    match done {
+        None => false,
+        Some(Done::Open(url)) => {
+            hide();
+            NSWorkspace::sharedWorkspace().openURL(&url);
+            true
+        }
+        Some(Done::Dropped) => {
+            start_anim();
+            true
+        }
+    }
+}
+
 /// Returns true when the click was ours and must be swallowed.
 fn on_click(left: bool) -> bool {
     let (visible, url) = MODEL.with(|m| {
@@ -750,14 +884,28 @@ unsafe extern "C" fn on_event(_proxy: *mut c_void, ty: u32, ev: *mut c_void, _us
         TAP_DISABLED_TIMEOUT | TAP_DISABLED_USER => CGEventTapEnable(TAP.load(Ordering::Relaxed), true),
         L_UP | R_UP | O_UP if MODEL.with(|m| std::mem::take(&mut m.borrow_mut().swallow_up)) => return null_mut(),
         _ if MODEL.with(|m| m.borrow().menu_open) => {}
+        L_DRAG if MODEL.with(|m| m.borrow().press.is_some()) => {
+            on_drag(event_point(ev, mtm));
+            return null_mut();
+        }
+        L_UP => {
+            if on_left_up() {
+                return null_mut();
+            }
+        }
         MOVED | L_DRAG | R_DRAG | O_DRAG => on_move(ev, mtm),
         R_DOWN => {
             if on_right_click(event_point(ev, mtm)) {
                 return null_mut();
             }
         }
-        L_DOWN | O_DOWN => {
-            if on_click(ty == L_DOWN) {
+        L_DOWN => {
+            if on_left_down(event_point(ev, mtm)) {
+                return null_mut();
+            }
+        }
+        O_DOWN => {
+            if on_click(false) {
                 return null_mut();
             }
         }
