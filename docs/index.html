@@ -138,31 +138,77 @@
     position: fixed; right: calc(22px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 4;
     display: flex; align-items: center; gap: 10px;
   }
-  .gh {
-    width: 44px; height: 44px; flex: none;
-    display: grid; place-items: center; border-radius: 50%; color: var(--paper);
-    background: rgba(255, 255, 255, .12); transition: background .2s, transform .2s var(--spring);
+  /* Each corner button is just its icon; hovering slides its label out to the left. */
+  .pill {
+    height: 44px; min-width: 44px; flex: none; padding: 0 10px; border: 0; border-radius: 22px; cursor: pointer;
+    display: flex; flex-direction: row-reverse; align-items: center; justify-content: center;
+    font: 600 15px/1 system-ui, -apple-system, sans-serif; text-decoration: none; white-space: nowrap;
+    color: var(--paper); background: rgba(255, 255, 255, .12);
+    -webkit-font-smoothing: antialiased;
+    transition-property: background-color, color, transform, box-shadow;
+    transition-duration: .25s; transition-timing-function: cubic-bezier(.2, 0, 0, 1);
   }
-  .gh:hover { background: rgba(255, 255, 255, .24); transform: scale(1.08); }
-  .gh svg { width: 24px; height: 24px; fill: currentColor; }
-  .gh.coffee svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .ask {
-    height: 44px; flex: none; padding: 0 18px 0 14px; border: 0; border-radius: 22px; cursor: pointer;
-    display: flex; align-items: center; gap: 8px;
-    font: 600 15px/1 system-ui, -apple-system, sans-serif; color: var(--ink); background: var(--paper);
-    box-shadow: 0 10px 24px -10px rgba(8, 12, 60, .6);
-    transition: transform .25s var(--spring), background-color .2s;
+  .pill .ic { position: relative; width: 24px; height: 24px; flex: none; display: grid; place-items: center; }
+  .pill svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .pill svg.solid { fill: currentColor; stroke: none; }
+  .pill .label { display: grid; grid-template-columns: 0fr; opacity: 0; transition: grid-template-columns .32s cubic-bezier(.2, 0, 0, 1), opacity .2s; }
+  .pill .label > span { overflow: hidden; min-width: 0; }
+  .pill .label > span > span { display: inline-block; padding: 0 8px 0 6px; }
+  .pill:focus-visible { background: var(--paper); color: var(--ink); box-shadow: 0 10px 24px -10px rgba(8, 12, 60, .6); }
+  .pill:focus-visible .label { grid-template-columns: 1fr; opacity: 1; }
+  @media (hover: hover) and (min-width: 601px) {
+    .pill:hover { background: var(--paper); color: var(--ink); box-shadow: 0 10px 24px -10px rgba(8, 12, 60, .6); }
+    .pill:hover .label, .pill.copied .label { grid-template-columns: 1fr; opacity: 1; }
   }
-  .ask:hover { transform: translateY(-2px) scale(1.03); }
-  .ask:active { transform: scale(.96); }
-  .ask svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .ask .done { display: none; }
+  .pill:active { transform: scale(.96); }
+  .pill:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
+  .ask { background: var(--paper); color: var(--ink); box-shadow: 0 10px 24px -10px rgba(8, 12, 60, .6); }
+  /* Copy and check icons cross-fade in place. */
+  .ask .ic svg { position: absolute; transition: opacity .2s cubic-bezier(.2, 0, 0, 1), transform .2s cubic-bezier(.2, 0, 0, 1), filter .2s; }
+  .ask svg.done, .ask.copied svg.idle { opacity: 0; transform: scale(.25); filter: blur(4px); }
+  .ask.copied svg.done { opacity: 1; transform: none; filter: none; }
+  .ask .label .done, .ask.copied .label .idle { display: none; }
+  .ask.copied .label .done { display: inline-block; }
   .ask.copied { background: #3ddc97; }
-  .ask.copied .idle { display: none; }
-  .ask.copied .done { display: inline; }
-  .mark:focus-visible, .gh:focus-visible, .ask:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; border-radius: 12px; }
+  .mark:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; border-radius: 12px; }
 
-  @media (max-width: 600px) { .ask .wide { display: none; } .ask { padding: 0 14px 0 12px; font-size: 14px; } :root { --tile: 52px; } .mark { left: calc(16px + env(safe-area-inset-left)); font-size: 30px; } .corner { right: calc(16px + env(safe-area-inset-right)); gap: 8px; } }
+  /* "What is jiggle?" */
+  #about {
+    width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 26px 26px 22px; border: 0; border-radius: 22px;
+    color: var(--ink); background: var(--paper); -webkit-user-select: text; user-select: text;
+    font: 15px/1.5 system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .6), 0 30px 70px -20px rgba(8, 12, 60, .7);
+    opacity: 0; transform: translateY(8px) scale(.96);
+    transition: opacity .22s cubic-bezier(.2, 0, 0, 1), transform .22s cubic-bezier(.2, 0, 0, 1), overlay .22s allow-discrete, display .22s allow-discrete;
+  }
+  #about[open] { opacity: 1; transform: none; }
+  @starting-style { #about[open] { opacity: 0; transform: translateY(8px) scale(.96); } }
+  #about::backdrop { background: rgba(8, 12, 60, 0); transition: background .22s, overlay .22s allow-discrete, display .22s allow-discrete; }
+  #about[open]::backdrop { background: rgba(8, 12, 60, .35); }
+  @starting-style { #about[open]::backdrop { background: rgba(8, 12, 60, 0); } }
+  #about h2 { margin: 0 0 10px; font: 400 30px/1.1 "Bagel Fat One", system-ui, sans-serif; color: var(--field); text-wrap: balance; }
+  #about p { margin: 0 0 14px; text-wrap: pretty; }
+  #about ul { margin: 0 0 18px; padding: 0; list-style: none; display: grid; gap: 8px; }
+  #about li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; text-wrap: pretty; }
+  #about li b { color: var(--field); font-weight: 700; }
+  #about .fine { font-size: 13px; color: rgba(18, 24, 74, .62); margin-bottom: 18px; }
+  #about .row { display: flex; gap: 10px; }
+  #about .row a, #about .row button {
+    flex: 1; height: 42px; border: 0; border-radius: 12px; cursor: pointer; display: grid; place-items: center;
+    font: 600 15px/1 system-ui, -apple-system, sans-serif; text-decoration: none;
+    transition: transform .2s cubic-bezier(.2, 0, 0, 1), background-color .2s;
+  }
+  #about .row a { background: var(--field); color: var(--paper); }
+  #about .row button { background: rgba(18, 24, 74, .08); color: var(--ink); }
+  #about .row a:hover { background: #2230c9; }
+  #about .row button:hover { background: rgba(18, 24, 74, .14); }
+  #about .row a:active, #about .row button:active { transform: scale(.96); }
+  #about .x { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: none; color: rgba(18, 24, 74, .5); cursor: pointer; display: grid; place-items: center; }
+  #about .x:hover { background: rgba(18, 24, 74, .08); color: var(--ink); }
+  #about .x svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+  #about :focus-visible { outline: 3px solid var(--field); outline-offset: 2px; }
+
+  @media (max-width: 600px) { :root { --tile: 52px; } .mark { left: calc(16px + env(safe-area-inset-left)); font-size: 30px; } .corner { right: calc(16px + env(safe-area-inset-right)); gap: 8px; } }
   @media (hover: none) { #follower { display: none; } }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition-duration: 0s !important; transition-delay: 0s !important; animation: none !important; }
@@ -211,22 +257,47 @@
 
 <a class="mark" translate="no" href="https://github.com/cullen-b/jiggle" aria-label="jiggle on GitHub"><span>j</span><span>i</span><span>g</span><span>g</span><span>l</span><span>e</span></a>
 <div class="corner">
-<button class="ask" type="button" aria-describedby="ask-status">
-  <svg class="idle" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
-  <svg class="done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-  <span class="idle">Copy <span class="wide">install </span>prompt</span><span class="done">Copied<span class="wide">, paste it to your agent</span></span>
+<button class="pill help" type="button" aria-haspopup="dialog" aria-controls="about">
+  <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4"/><circle class="dot" cx="12" cy="17.4" r=".4" fill="currentColor"/></svg></span>
+  <span class="label"><span><span>What is jiggle?</span></span></span>
 </button>
-<a class="gh coffee" href="https://payme.cullenbaker.com" aria-label="Buy me a coffee" title="Buy me a coffee">
-  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h11v5a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8.5 3.5c-.6.8.6 1.7 0 2.5M12 3.5c-.6.8.6 1.7 0 2.5"/></svg>
+<button class="pill ask" type="button" aria-describedby="ask-status">
+  <span class="ic">
+    <svg class="idle" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+    <svg class="done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  </span>
+  <span class="label"><span><span class="idle">Copy install prompt</span><span class="done">Copied, paste it to your agent</span></span></span>
+</button>
+<a class="pill" href="https://payme.cullenbaker.com">
+  <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h11v5a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8.5 3.5c-.6.8.6 1.7 0 2.5M12 3.5c-.6.8.6 1.7 0 2.5"/></svg></span>
+  <span class="label"><span><span>Buy me a coffee</span></span></span>
 </a>
-<a class="gh" href="https://github.com/cullen-b/jiggle" aria-label="Source code on GitHub" title="Source code on GitHub">
-  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+<a class="pill" href="https://github.com/cullen-b/jiggle">
+  <span class="ic"><svg class="solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></span>
+  <span class="label"><span><span>Source on GitHub</span></span></span>
 </a>
 </div>
+<dialog id="about" aria-labelledby="about-title">
+  <button class="x" type="button" aria-label="Close" data-close><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  <h2 id="about-title">What is jiggle?</h2>
+  <p>A tiny Mac app. Shake your mouse and your Dock apps appear in a ring around the pointer, wherever it is. No reaching for the Dock, no shortcut to remember.</p>
+  <ul>
+    <li><span aria-hidden="true">👋</span><span><b>Shake</b> the mouse to open the ring. You can try it on this page.</span></li>
+    <li><span aria-hidden="true">🎯</span><span><b>Point</b> toward an app. Its slice grows as you head for it, so it's easy to hit.</span></li>
+    <li><span aria-hidden="true">👆</span><span><b>Click</b> anywhere in its slice to open it. Click outside or press Esc to close.</span></li>
+    <li><span aria-hidden="true">✋</span><span><b>Right-click</b> an app to quit it or keep it in the Dock, drag to reorder, and right-click the center for settings.</span></li>
+  </ul>
+  <p class="fine">Under 1 MB, open source Rust, uses almost no CPU, and updates itself. Needs macOS and Accessibility permission. You can even hide the Dock completely.</p>
+  <div class="row">
+    <a href="https://github.com/cullen-b/jiggle/releases/latest/download/Jiggle.zip">Download</a>
+    <button type="button" data-close>Got it</button>
+  </div>
+</dialog>
 <span id="ask-status" class="sr" aria-live="polite"></span>
 
 <script>
 (() => {
+  const about = document.getElementById('about');
   const now = new Date();
   const month = now.toLocaleString('en', { month: 'short' }).toUpperCase();
   const bg = (id) => `<rect width="100" height="100" rx="23" fill="url(#${id})"/>`;
@@ -355,6 +426,7 @@
   }
 
   function show(x, y) {
+    if (about.open) return;
     const outer = layout();
     const m = 8;
     cx = Math.min(Math.max(x, outer + m), innerWidth - outer - m);
@@ -479,7 +551,7 @@
       lastTap = now;
       return;
     }
-    if (!open || e.target.closest('.tile, a, .ask')) return;
+    if (!open || e.target.closest('.tile, a, .pill')) return;
     const i = pick(e.clientX, e.clientY).i;
     if (i >= 0 && e.pointerType === 'mouse') launch(i); else hide();
   });
@@ -487,6 +559,7 @@
 
   // Keyboard: Space opens at the pointer, arrows choose, Enter opens, Esc closes.
   addEventListener('keydown', (e) => {
+    if (about.open) return;
     if (appOpen) { if (['Escape', 'Enter', ' '].includes(e.key)) { e.preventDefault(); closeApp(); } return; }
     if (!open) {
       if (e.key === ' ' && !e.target.closest('a, button')) { e.preventDefault(); show(px, py); select(0); tiles[0].focus({ preventScroll: true }); }
@@ -588,6 +661,13 @@
     askTimer = setTimeout(() => { ask.classList.remove('copied'); askStatus.textContent = ''; }, 2400);
   }
   ask.addEventListener('click', copyPrompt);
+
+  document.querySelector('.help').addEventListener('click', () => { if (open) hide(); about.showModal(); });
+  about.addEventListener('click', (e) => {
+    const r = about.getBoundingClientRect();
+    const outside = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    if ((e.target === about && outside) || e.target.closest('[data-close]')) about.close();
+  });
 
   resize();
   follower.style.transform = `translate(${fx}px, ${fy}px)`;
