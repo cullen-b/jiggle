@@ -71,15 +71,13 @@
   .tile {
     position: absolute; left: 0; top: 0;
     width: var(--tile); height: var(--tile); margin: calc(var(--tile) / -2) 0 0 calc(var(--tile) / -2);
-    border: 0; border-radius: 30%; padding: 0; cursor: pointer;
-    display: grid; place-items: center;
-    background: var(--c); color: var(--ink);
-    box-shadow: 0 10px 22px -8px rgba(8, 12, 60, .6), inset 0 -4px 0 rgba(0, 0, 0, .12);
+    border: 0; border-radius: 23%; padding: 0; cursor: pointer; background: none;
+    box-shadow: 0 12px 22px -10px rgba(8, 12, 60, .7);
     transform: translate(0, 0) scale(.1); opacity: 0;
     transition: transform .45s var(--spring), opacity .2s, filter .2s;
     transition-delay: calc(var(--i) * 22ms);
   }
-  .tile svg { width: 46%; height: 46%; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .tile svg { display: block; width: 100%; height: 100%; }
   body.open .tile { pointer-events: auto; opacity: 1; transform: translate(var(--x), var(--y)) scale(1); }
   body.open .tile.sel { transform: translate(var(--x), var(--y)) scale(1.28); transition-delay: 0s; transition-duration: .3s; z-index: 1; }
   body.open.picking .tile:not(.sel) { filter: brightness(.94); }
@@ -90,21 +88,26 @@
     border-radius: 50%; background: var(--paper); opacity: .85;
   }
 
-  /* An opened "app": the tile grows to fill the screen. */
+  /* An opened app: a small window pops out of the tile, then tucks back in. */
   #app {
-    position: fixed; z-index: 5; display: none; place-items: center;
-    background: var(--c); color: var(--ink); cursor: pointer;
-    transition: left .5s var(--spring), top .5s var(--spring), width .5s var(--spring), height .5s var(--spring), border-radius .5s ease;
+    position: fixed; left: 0; top: 0; z-index: 5; width: 240px; margin-left: -120px;
+    border-radius: 14px; overflow: hidden; cursor: pointer; display: none;
+    background: rgba(248, 249, 255, .94);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .6), 0 30px 60px -15px rgba(8, 12, 60, .65);
+    transform: translate(var(--fx), var(--fy)) scale(.15); opacity: 0;
+    transition: transform .45s var(--spring), opacity .18s;
   }
-  #app.show { display: grid; }
-  #app svg {
-    width: min(38vmin, 300px); height: min(38vmin, 300px);
-    fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
-    opacity: 0; transform: scale(.6) rotate(-10deg);
-    transition: opacity .3s .15s, transform .6s .15s var(--spring);
-  }
-  #app.full svg { opacity: 1; transform: none; animation: bob 2.4s 0.8s ease-in-out infinite; }
-  @keyframes bob { 50% { transform: translateY(-10px) rotate(3deg); } }
+  #app.show { display: block; }
+  #app.pop { transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; }
+  #app .bar { position: relative; height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 11px; background: rgba(18, 24, 74, .05); }
+  #app .bar i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+  #app .bar i:nth-child(2) { background: #febc2e; }
+  #app .bar i:nth-child(3) { background: #28c840; }
+  #app .bar span { position: absolute; inset: 0; display: grid; place-items: center; font: 600 12.5px/1 system-ui, -apple-system, sans-serif; color: rgba(18, 24, 74, .65); }
+  #app .body { height: 130px; display: grid; place-items: center; }
+  #app .body svg { width: 76px; height: 76px; filter: drop-shadow(0 8px 14px rgba(8, 12, 60, .3)); animation: hop .55s .08s var(--spring) both; }
+  @keyframes hop { from { transform: scale(.4) rotate(-14deg); } to { transform: none; } }
 
   /* Corners: the only words on the page. */
   .mark {
@@ -113,16 +116,20 @@
     color: var(--paper); text-decoration: none; display: flex; pointer-events: auto;
   }
   .mark span { display: inline-block; transform: rotate(var(--r, 0deg)) translateY(var(--dy, 0px)); }
+  .corner {
+    position: fixed; right: calc(22px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 4;
+    display: flex; align-items: center; gap: 10px;
+  }
   .gh {
-    position: fixed; right: calc(22px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 4; width: 44px; height: 44px;
+    width: 44px; height: 44px; flex: none;
     display: grid; place-items: center; border-radius: 50%; color: var(--paper);
     background: rgba(255, 255, 255, .12); transition: background .2s, transform .2s var(--spring);
   }
   .gh:hover { background: rgba(255, 255, 255, .24); transform: scale(1.08); }
   .gh svg { width: 24px; height: 24px; fill: currentColor; }
+  .gh.coffee svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .ask {
-    position: fixed; right: calc(76px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 4;
-    height: 44px; padding: 0 18px 0 14px; border: 0; border-radius: 22px; cursor: pointer;
+    height: 44px; flex: none; padding: 0 18px 0 14px; border: 0; border-radius: 22px; cursor: pointer;
     display: flex; align-items: center; gap: 8px;
     font: 600 15px/1 system-ui, -apple-system, sans-serif; color: var(--ink); background: var(--paper);
     box-shadow: 0 10px 24px -10px rgba(8, 12, 60, .6);
@@ -137,7 +144,7 @@
   .ask.copied .done { display: inline; }
   .mark:focus-visible, .gh:focus-visible, .ask:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; border-radius: 12px; }
 
-  @media (max-width: 600px) { .ask .wide { display: none; } .ask { right: calc(68px + env(safe-area-inset-right)); padding: 0 14px 0 12px; font-size: 14px; } :root { --tile: 52px; } .mark { left: calc(16px + env(safe-area-inset-left)); } .gh { right: calc(16px + env(safe-area-inset-right)); } }
+  @media (max-width: 600px) { .ask .wide { display: none; } .ask { padding: 0 14px 0 12px; font-size: 14px; } :root { --tile: 52px; } .mark { left: calc(16px + env(safe-area-inset-left)); font-size: 30px; } .corner { right: calc(16px + env(safe-area-inset-right)); gap: 8px; } }
   @media (hover: none) { #follower { display: none; } }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition-duration: 0s !important; transition-delay: 0s !important; animation: none !important; }
@@ -147,6 +154,28 @@
 <body>
 <h1 class="sr">jiggle: shake your mouse and your Dock apps appear around the pointer. Press Space to try it.</h1>
 <canvas id="dots" aria-hidden="true"></canvas>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-files-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6faff"/><stop offset="1" stop-color="#d3e3f8"/></linearGradient>
+    <linearGradient id="g-files-back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4f9dff"/><stop offset="1" stop-color="#1a64d6"/></linearGradient>
+    <linearGradient id="g-files-front" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fc6ff"/><stop offset="1" stop-color="#3a8af2"/></linearGradient>
+    <linearGradient id="g-music-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd25e"/><stop offset=".55" stop-color="#ff9a2e"/><stop offset="1" stop-color="#f2621f"/></linearGradient>
+    <linearGradient id="g-cam-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5d6370"/><stop offset="1" stop-color="#1e2128"/></linearGradient>
+    <linearGradient id="g-cam-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdfdfe"/><stop offset="1" stop-color="#bfc5cf"/></linearGradient>
+    <radialGradient id="g-cam-lens" cx=".38" cy=".34" r=".75"><stop offset="0" stop-color="#7aa8ff"/><stop offset=".5" stop-color="#1d3d96"/><stop offset="1" stop-color="#050b1f"/></radialGradient>
+    <linearGradient id="g-web-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#72d6ff"/><stop offset="1" stop-color="#1569e0"/></linearGradient>
+    <radialGradient id="g-web-globe" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#cfe7ff"/></radialGradient>
+    <linearGradient id="g-msg-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bb95ff"/><stop offset="1" stop-color="#5f2fe6"/></linearGradient>
+    <linearGradient id="g-term-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d424c"/><stop offset="1" stop-color="#111317"/></linearGradient>
+    <linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6cc6ff"/><stop offset="1" stop-color="#2670ea"/></linearGradient>
+    <radialGradient id="g-sun" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fff7b8"/><stop offset=".55" stop-color="#ffc928"/><stop offset="1" stop-color="#ff9a1a"/></radialGradient>
+    <linearGradient id="g-cloud" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe6f4"/></linearGradient>
+    <linearGradient id="g-cal-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e7eaf0"/></linearGradient>
+    <linearGradient id="g-cal-top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6a5f"/><stop offset="1" stop-color="#e2302a"/></linearGradient>
+    <linearGradient id="g-gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <filter id="g-drop" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#0b1440" flood-opacity=".3"/></filter>
+  </defs>
+</svg>
 
 <div id="follower" aria-hidden="true">
   <svg viewBox="0 0 56 56">
@@ -160,32 +189,63 @@
 </div>
 
 <div id="ring"><div id="disc"></div></div>
-<div id="app" role="dialog" aria-modal="true" aria-label="App"></div>
+<div id="app" role="status"></div>
 
 <a class="mark" translate="no" href="https://github.com/cullen-b/jiggle" aria-label="jiggle on GitHub"><span>j</span><span>i</span><span>g</span><span>g</span><span>l</span><span>e</span></a>
+<div class="corner">
 <button class="ask" type="button" aria-describedby="ask-status">
   <svg class="idle" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
   <svg class="done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
   <span class="idle">Copy <span class="wide">install </span>prompt</span><span class="done">Copied<span class="wide">, paste it to your agent</span></span>
 </button>
-<span id="ask-status" class="sr" aria-live="polite"></span>
-<a class="gh" href="https://github.com/cullen-b/jiggle" aria-label="Source code on GitHub">
+<a class="gh coffee" href="https://payme.cullenbaker.com" aria-label="Buy me a coffee" title="Buy me a coffee">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h11v5a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8.5 3.5c-.6.8.6 1.7 0 2.5M12 3.5c-.6.8.6 1.7 0 2.5"/></svg>
+</a>
+<a class="gh" href="https://github.com/cullen-b/jiggle" aria-label="Source code on GitHub" title="Source code on GitHub">
   <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
 </a>
+</div>
+<span id="ask-status" class="sr" aria-live="polite"></span>
 
 <script>
 (() => {
+  const now = new Date();
+  const month = now.toLocaleString('en', { month: 'short' }).toUpperCase();
+  const bg = (id) => `<rect width="100" height="100" rx="23" fill="url(#${id})"/>`;
+  const gloss = '<rect width="100" height="100" rx="23" fill="url(#g-gloss)"/>';
   const APPS = [
-    { name: 'Files',    c: '#ffd23f', g: '<path d="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>' },
-    { name: 'Music',    c: '#ff5d8f', g: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>', run: 1 },
-    { name: 'Camera',   c: '#3ddc97', g: '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/>' },
-    { name: 'Web',      c: '#4cc9ff', g: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4" ry="9"/>', run: 1 },
-    { name: 'Messages', c: '#f7f7ff', g: '<path d="M4 5h16v11H10l-6 4z"/>' },
-    { name: 'Terminal', c: '#ff8a3d', g: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>', run: 1 },
-    { name: 'Weather',  c: '#b79cff', g: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>' },
-    { name: 'Calendar', c: '#ff4d4d', g: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>' },
+    { name: 'Files', art: bg('g-files-bg') +
+      '<path d="M17 29a5 5 0 0 1 5-5h17l7 7h32a5 5 0 0 1 5 5v38a6 6 0 0 1-6 6H23a6 6 0 0 1-6-6z" fill="url(#g-files-back)"/>' +
+      '<path d="M13 43a5 5 0 0 1 5-5h64a5 5 0 0 1 5 5v31a6 6 0 0 1-6 6H19a6 6 0 0 1-6-6z" fill="url(#g-files-front)" filter="url(#g-drop)"/>' +
+      '<path d="M18 42.5h64" stroke="#fff" stroke-opacity=".6" stroke-width="2" stroke-linecap="round"/>' },
+    { name: 'Music', run: 1, art: bg('g-music-bg') + gloss +
+      '<g fill="#fff" filter="url(#g-drop)"><path d="M40 33 74 25v10l-34 8z"/><rect x="40" y="33" width="6" height="37"/><rect x="68" y="25" width="6" height="37"/>' +
+      '<ellipse cx="36" cy="70" rx="10.5" ry="8" transform="rotate(-20 36 70)"/><ellipse cx="64" cy="62" rx="10.5" ry="8" transform="rotate(-20 64 62)"/></g>' },
+    { name: 'Camera', art: bg('g-cam-bg') +
+      '<rect x="35" y="22" width="26" height="13" rx="4" fill="#d6dae2"/>' +
+      '<rect x="13" y="30" width="74" height="50" rx="10" fill="url(#g-cam-body)" filter="url(#g-drop)"/>' +
+      '<circle cx="50" cy="56" r="20" fill="#2b2f38"/><circle cx="50" cy="56" r="15.5" fill="#101319" stroke="#5c6474" stroke-width="2"/>' +
+      '<circle cx="50" cy="56" r="10.5" fill="url(#g-cam-lens)"/><circle cx="45.5" cy="51.5" r="3" fill="#fff" opacity=".85"/>' +
+      '<circle cx="76" cy="39" r="3.5" fill="#ffcf3a"/>' },
+    { name: 'Web', run: 1, art: bg('g-web-bg') + gloss +
+      '<circle cx="50" cy="50" r="31" fill="url(#g-web-globe)" filter="url(#g-drop)"/>' +
+      '<g fill="none" stroke="#2a78ee" stroke-width="3" stroke-linecap="round"><ellipse cx="50" cy="50" rx="13" ry="31"/><path d="M19 50h62M24 34h52M24 66h52M50 19v62"/><circle cx="50" cy="50" r="31"/></g>' },
+    { name: 'Messages', art: bg('g-msg-bg') + gloss +
+      '<path d="M50 21c-20 0-36 13-36 29 0 8.7 4.8 16.4 12.4 21.7-.7 4.4-3 8.3-6.4 11 6.8.3 13.3-2.1 18-6.4 3.8 1 7.8 1.5 12 1.5 20 0 36-13 36-28.8S70 21 50 21z" fill="#fff" filter="url(#g-drop)"/>' +
+      '<g fill="#7b4cf0"><circle cx="36" cy="50" r="4.5"/><circle cx="50" cy="50" r="4.5"/><circle cx="64" cy="50" r="4.5"/></g>' },
+    { name: 'Terminal', run: 1, art: bg('g-term-bg') +
+      '<circle cx="19" cy="18" r="4" fill="#ff5f57"/><circle cx="31" cy="18" r="4" fill="#febc2e"/><circle cx="43" cy="18" r="4" fill="#28c840"/>' +
+      '<path d="M24 45l14 11-14 11" fill="none" stroke="#4ade80" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<path d="M46 69h28" stroke="#e8eaf0" stroke-width="7" stroke-linecap="round"/>' },
+    { name: 'Weather', art: bg('g-sky') + gloss +
+      '<circle cx="40" cy="40" r="17" fill="url(#g-sun)"/>' +
+      '<path d="M30 79h42a14 14 0 0 0 1-28 18 18 0 0 0-34-3 13 13 0 0 0-9 31z" fill="url(#g-cloud)" filter="url(#g-drop)"/>' },
+    { name: 'Calendar', art: bg('g-cal-bg') +
+      '<path d="M0 23A23 23 0 0 1 23 0h54a23 23 0 0 1 23 23v7H0z" fill="url(#g-cal-top)"/>' +
+      `<text x="50" y="21.5" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="15" font-weight="700" fill="#fff" letter-spacing="1">${month}</text>` +
+      `<text x="50" y="80" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="48" font-weight="500" fill="#1d2230">${now.getDate()}</text>` },
   ];
-  const svg = (g) => `<svg viewBox="0 0 24 24" aria-hidden="true">${g}</svg>`;
+  const icon = (i) => `<svg viewBox="0 0 100 100" aria-hidden="true">${APPS[i].art}</svg>`;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const body = document.body;
   const ring = document.getElementById('ring');
@@ -214,11 +274,10 @@
   const tiles = APPS.map((a, i) => {
     const b = document.createElement('button');
     b.className = 'tile';
-    b.style.setProperty('--c', a.c);
     b.style.setProperty('--i', i);
     b.setAttribute('aria-label', a.name);
     b.tabIndex = -1;
-    b.innerHTML = svg(a.g) + (a.run ? '<span class="run"></span>' : '');
+    b.innerHTML = icon(i) + (a.run ? '<span class="run"></span>' : '');
     b.addEventListener('focus', () => select(i));
     b.addEventListener('click', (e) => { e.stopPropagation(); launch(i); });
     ring.appendChild(b);
@@ -282,33 +341,34 @@
     return ((k % APPS.length) + APPS.length) % APPS.length;
   }
 
-  // Opening an app: the tile grows to fill the screen.
-  let appOpen = false, appFrom = null;
+  // Opening an app: a small window pops out of the tile, then tucks back in.
+  let appOpen = false, appTimer;
   function launch(i) {
-    const t = tiles[i];
-    const r = t.getBoundingClientRect();
-    appFrom = { r, i };
-    appEl.style.setProperty('--c', APPS[i].c);
-    appEl.setAttribute('aria-label', APPS[i].name);
-    appEl.innerHTML = svg(APPS[i].g);
-    Object.assign(appEl.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', borderRadius: '30%' });
-    appEl.classList.add('show');
+    const r = tiles[i].getBoundingClientRect();
+    const W = 240, H = 160, m = 12;
+    const tx = Math.min(Math.max(cx, W / 2 + m), innerWidth - W / 2 - m);
+    const ty = Math.min(Math.max(cy, H / 2 + m), innerHeight - H / 2 - m);
+    appEl.style.setProperty('--fx', `${r.left + r.width / 2}px`);
+    appEl.style.setProperty('--fy', `${r.top + r.height / 2 - H / 2}px`);
+    appEl.style.setProperty('--tx', `${tx}px`);
+    appEl.style.setProperty('--ty', `${ty - H / 2}px`);
+    appEl.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>${APPS[i].name}</span></div><div class="body">${icon(i)}</div>`;
     hide();
+    appEl.classList.remove('pop');
+    appEl.classList.add('show');
+    void appEl.offsetWidth;
+    appEl.classList.add('pop');
     appOpen = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      Object.assign(appEl.style, { left: '0px', top: '0px', width: innerWidth + 'px', height: innerHeight + 'px', borderRadius: '0' });
-      appEl.classList.add('full');
-    }));
-    appEl.tabIndex = -1; appEl.focus({ preventScroll: true });
+    clearTimeout(appTimer);
+    appTimer = setTimeout(closeApp, 1700);
     if (navigator.vibrate) navigator.vibrate(20);
   }
   function closeApp() {
     if (!appOpen) return;
     appOpen = false;
-    const r = appFrom.r;
-    appEl.classList.remove('full');
-    Object.assign(appEl.style, { left: (r.left + r.width / 2) + 'px', top: (r.top + r.height / 2) + 'px', width: '0px', height: '0px', borderRadius: '50%' });
-    setTimeout(() => { if (!appOpen) appEl.classList.remove('show'); }, reduced ? 0 : 450);
+    clearTimeout(appTimer);
+    appEl.classList.remove('pop');
+    setTimeout(() => { if (!appOpen) appEl.classList.remove('show'); }, reduced ? 0 : 320);
   }
   appEl.addEventListener('click', closeApp);
 
@@ -331,6 +391,7 @@
   addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') lastX = lastY = null; });
   addEventListener('pointerdown', (e) => {
     lastX = e.clientX; lastY = e.clientY;
+    if (appOpen && !e.target.closest('#app')) closeApp();
     // Double-tap opens the ring on touch screens, as an alternative to shaking.
     if (!open && !appOpen && e.pointerType !== 'mouse' && !e.target.closest('a, button')) {
       const now = performance.now();

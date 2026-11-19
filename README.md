@@ -4,6 +4,8 @@
 
 Try it: https://cullen-b.github.io/jiggle/
 
+Like it? [Buy me a coffee](https://payme.cullenbaker.com).
+
 Shake the mouse anywhere and your Dock apps appear in a ring around the pointer. Point toward one
 and click to open (or switch to) it. Esc, right-click, any key, or clicking the middle dismisses it.
 
