@@ -1,6 +1,6 @@
 [package]
 name = "jiggle"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 description = "Shake the mouse to summon your Dock apps in a ring around the pointer (macOS)."
 

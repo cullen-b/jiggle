@@ -29,10 +29,30 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSDictionary, NSFileManager, NSNumber, NSPoint, NSRect, NSSize, NSString, NSURL};
 
-// Shake: this many direction reversals, each after a leg of at least SHAKE_MIN_LEG points, within SHAKE_WINDOW.
-const SHAKE_REVERSALS: usize = 4;
-const SHAKE_MIN_LEG: f64 = 40.0;
-const SHAKE_WINDOW: Duration = Duration::from_millis(600);
+/// What counts as a shake: `reversals` direction changes, each after a leg of at least `min_leg` points,
+/// all within `window`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ShakeParams {
+    reversals: usize,
+    min_leg: f64,
+    window: Duration,
+}
+
+/// The shake for a sensitivity level (see `settings::shake_sensitivity`); None when shaking is off.
+fn shake_params(level: isize) -> Option<ShakeParams> {
+    let (reversals, min_leg, ms) = match level {
+        i if i <= 0 => return None,
+        1 => (6, 70.0, 700),
+        2 => (5, 55.0, 650),
+        3 => (4, 40.0, 600),
+        4 => (3, 32.0, 600),
+        _ => (3, 22.0, 650),
+    };
+    Some(ShakeParams { reversals, min_leg, window: Duration::from_millis(ms) })
+}
+
+// How often the mouse hook re-reads the sensitivity, so a change from a terminal takes effect on its own.
+const SHAKE_RECHECK: Duration = Duration::from_secs(2);
 const COOLDOWN: Duration = Duration::from_millis(700);
 const ICON: f64 = 52.0;
 const PAD: f64 = 22.0;
@@ -109,19 +129,19 @@ struct Axis {
 }
 
 impl Axis {
-    fn feed(&mut self, d: f64, now: Instant) -> usize {
+    fn feed(&mut self, d: f64, now: Instant, shake: &ShakeParams) -> usize {
         let dir = if d > 0.0 { 1 } else if d < 0.0 { -1 } else { 0 };
         if dir == self.dir {
             self.leg += d.abs();
         } else if dir != 0 && d.abs() >= 3.0 {
             // Small opposite deltas are sensor noise, not a reversal.
-            if self.leg >= SHAKE_MIN_LEG {
+            if self.leg >= shake.min_leg {
                 self.flips.push_back(now);
             }
             self.dir = dir;
             self.leg = d.abs();
         }
-        while self.flips.front().is_some_and(|t| now - *t > SHAKE_WINDOW) {
+        while self.flips.front().is_some_and(|t| now - *t > shake.window) {
             self.flips.pop_front();
         }
         self.flips.len()
@@ -169,6 +189,8 @@ struct Model {
     aim: f64,
     x: Axis,
     y: Axis,
+    shake: Option<ShakeParams>,
+    shake_checked: Option<Instant>,
     cooldown: Instant,
     swallow_up: bool,
     // What the pending right-click menu is for (an app, or None for the Jiggle menu), and whether a menu is open.
@@ -209,6 +231,8 @@ thread_local! {
         aim: 0.0,
         x: Axis::default(),
         y: Axis::default(),
+        shake: shake_params(settings::DEFAULT_SHAKE),
+        shake_checked: None,
         cooldown: Instant::now(),
         swallow_up: false,
         menu_for: None,
@@ -662,8 +686,14 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
         }
         let now = Instant::now();
         let (dx, dy) = unsafe { (CGEventGetDoubleValueField(ev, FIELD_DELTA_X), CGEventGetDoubleValueField(ev, FIELD_DELTA_Y)) };
-        let flips = m.x.feed(dx, now).max(m.y.feed(dy, now));
-        if flips >= SHAKE_REVERSALS && now >= m.cooldown {
+        if m.shake_checked.is_none_or(|t| now - t > SHAKE_RECHECK) {
+            settings::reload();
+            m.shake = shake_params(settings::shake_sensitivity());
+            m.shake_checked = Some(now);
+        }
+        let Some(shake) = m.shake else { return Act::Nothing };
+        let flips = m.x.feed(dx, now, &shake).max(m.y.feed(dy, now, &shake));
+        if flips >= shake.reversals && now >= m.cooldown {
             m.x = Axis::default();
             m.y = Axis::default();
             Act::Show
@@ -1018,7 +1048,7 @@ mod tests {
         for leg in 0..legs {
             let d = if leg % 2 == 0 { step } else { -step };
             for _ in 0..5 {
-                flips = axis.feed(d, now);
+                flips = axis.feed(d, now, &shake_params(3).unwrap());
             }
         }
         flips
@@ -1039,9 +1069,33 @@ mod tests {
         let mut a = Axis::default();
         let now = Instant::now();
         for d in [20.0, 20.0, -1.0, 20.0, 20.0] {
-            a.feed(d, now);
+            a.feed(d, now, &shake_params(3).unwrap());
         }
         assert_eq!((a.dir, a.leg), (1, 80.0));
+    }
+
+    #[test]
+    fn sensitivity_levels() {
+        assert_eq!(shake_params(0), None);
+        assert_eq!(shake_params(3), Some(ShakeParams { reversals: 4, min_leg: 40.0, window: Duration::from_millis(600) }));
+        // Each step up is never harder than the one before.
+        for l in 1..5 {
+            let (a, b) = (shake_params(l).unwrap(), shake_params(l + 1).unwrap());
+            assert!(b.reversals <= a.reversals && b.min_leg < a.min_leg);
+        }
+        // A light shake that "Normal" ignores opens it at "Very light".
+        let mut normal = Axis::default();
+        let mut light = Axis::default();
+        let now = Instant::now();
+        for leg in 0..4 {
+            let d = if leg % 2 == 0 { 6.0 } else { -6.0 };
+            for _ in 0..4 {
+                normal.feed(d, now, &shake_params(3).unwrap());
+                light.feed(d, now, &shake_params(5).unwrap());
+            }
+        }
+        assert_eq!(normal.flips.len(), 0);
+        assert_eq!(light.flips.len(), 3);
     }
 
     #[test]
