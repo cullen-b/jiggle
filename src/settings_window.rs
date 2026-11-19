@@ -76,6 +76,20 @@ define_class!(
             settings::changed();
         }
 
+        #[unsafe(method(unhideApp:))]
+        fn unhide_app(&self, button: &NSButton) {
+            if let Some(path) = settings::hidden_apps().get(button.tag() as usize) {
+                settings::set_hidden_app(path, false);
+            }
+            settings::changed();
+        }
+
+        #[unsafe(method(hideApps:))]
+        fn hide_apps(&self, _button: &NSButton) {
+            settings::hide_apps(MainThreadMarker::from(self));
+            settings::changed();
+        }
+
         #[unsafe(method(addApps:))]
         fn add_apps(&self, _button: &NSButton) {
             settings::add_apps(MainThreadMarker::from(self));
@@ -161,6 +175,51 @@ fn place(content: &NSView, top: &mut f64, view: &NSView, x: f64, w: f64, h: f64,
     }
 }
 
+struct AppList<'a> {
+    heading: &'a str,
+    empty: &'a str,
+    apps: &'a [String],
+    row_button: (&'a str, objc2::runtime::Sel),
+    add_button: (&'a str, objc2::runtime::Sel),
+}
+
+fn list_height(rows: usize) -> f64 {
+    22.0 + rows.max(1) as f64 * ROW + 8.0 + 30.0 + 20.0
+}
+
+/// A heading, one row per app (name + a button tagged with its index), and a button below to add more.
+fn app_list(content: &NSView, top: &mut f64, list: &AppList, target: &Target, mtm: MainThreadMarker) {
+    let inner = WIDTH - 2.0 * MARGIN;
+    let heading = label(list.heading, mtm);
+    heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+    place(content, top, &heading, MARGIN, inner, 22.0, true);
+    if list.apps.is_empty() {
+        let none = label(list.empty, mtm);
+        none.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        place(content, top, &none, MARGIN, inner, ROW, true);
+    }
+    let fm = NSFileManager::defaultManager();
+    for (i, path) in list.apps.iter().enumerate() {
+        let name = fm.displayNameAtPath(&NSString::from_str(path)).to_string();
+        let row = label(name.strip_suffix(".app").unwrap_or(&name), mtm);
+        row.setToolTip(Some(&NSString::from_str(path)));
+        // Nudged down to line up with the button's text.
+        row.setFrame(NSRect::new(NSPoint::new(MARGIN, *top - ROW + 1.0), NSSize::new(inner - 116.0, ROW - 8.0)));
+        content.addSubview(&row);
+        let button = unsafe {
+            NSButton::buttonWithTitle_target_action(&NSString::from_str(list.row_button.0), Some(target), Some(list.row_button.1), mtm)
+        };
+        button.setTag(i as isize);
+        place(content, top, &button, WIDTH - MARGIN - 110.0, 110.0, ROW, true);
+    }
+    *top -= 8.0;
+    let add = unsafe {
+        NSButton::buttonWithTitle_target_action(&NSString::from_str(list.add_button.0), Some(target), Some(list.add_button.1), mtm)
+    };
+    place(content, top, &add, MARGIN - 6.0, 120.0, 30.0, true);
+    *top -= 20.0;
+}
+
 fn label(text: &str, mtm: MainThreadMarker) -> Retained<NSTextField> {
     NSTextField::labelWithString(&NSString::from_str(text), mtm)
 }
@@ -171,10 +230,12 @@ fn rebuild(mtm: MainThreadMarker) {
         let s = s.get().expect("settings window");
         let target = &s.target;
         let apps = settings::extra_apps();
-        let rows = apps.len().max(1) as f64;
+        let hidden = settings::hidden_apps();
         let recording = shortcut::is_recording();
         let hint = recording && SHORTCUT_HINT.with(Cell::get);
-        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0 + 22.0 + rows * ROW + 8.0 + 30.0 + 20.0
+        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0
+            + list_height(apps.len())
+            + list_height(hidden.len())
             + 22.0 + 30.0 + if hint { 22.0 } else { 0.0 } + 20.0 + 48.0 + MARGIN;
         let content = NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(WIDTH, height)));
         let inner = WIDTH - 2.0 * MARGIN;
@@ -214,34 +275,20 @@ fn rebuild(mtm: MainThreadMarker) {
         OPACITY_LABEL.with(|l| *l.borrow_mut() = Some(value));
         top -= 16.0;
 
-        let heading = label("Apps you added", mtm);
-        heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
-        place(&content, &mut top, &heading, MARGIN, inner, 22.0, true);
-        if apps.is_empty() {
-            let none = label("None yet. Added apps stay in the ring even when closed.", mtm);
-            none.setTextColor(Some(&NSColor::secondaryLabelColor()));
-            place(&content, &mut top, &none, MARGIN, inner, ROW, true);
-        }
-        let fm = NSFileManager::defaultManager();
-        for (i, path) in apps.iter().enumerate() {
-            let name = fm.displayNameAtPath(&NSString::from_str(path)).to_string();
-            let row = label(name.strip_suffix(".app").unwrap_or(&name), mtm);
-            row.setToolTip(Some(&NSString::from_str(path)));
-            // Nudged down to line up with the button's text.
-            row.setFrame(NSRect::new(NSPoint::new(MARGIN, top - ROW + 1.0), NSSize::new(inner - 96.0, ROW - 8.0)));
-            content.addSubview(&row);
-            let remove = unsafe {
-                NSButton::buttonWithTitle_target_action(&NSString::from_str("Remove"), Some(target), Some(sel!(removeApp:)), mtm)
-            };
-            remove.setTag(i as isize);
-            place(&content, &mut top, &remove, WIDTH - MARGIN - 90.0, 90.0, ROW, true);
-        }
-        top -= 8.0;
-        let add = unsafe {
-            NSButton::buttonWithTitle_target_action(&NSString::from_str("Add App\u{2026}"), Some(target), Some(sel!(addApps:)), mtm)
-        };
-        place(&content, &mut top, &add, MARGIN - 6.0, 120.0, 30.0, true);
-        top -= 20.0;
+        app_list(&content, &mut top, &AppList {
+            heading: "Apps you added",
+            empty: "None yet. Added apps stay in the ring even when closed.",
+            apps: &apps,
+            row_button: ("Remove", sel!(removeApp:)),
+            add_button: ("Add App\u{2026}", sel!(addApps:)),
+        }, target, mtm);
+        app_list(&content, &mut top, &AppList {
+            heading: "Hidden apps",
+            empty: "None. Hidden apps never appear in the ring, even when open.",
+            apps: &hidden,
+            row_button: ("Show Again", sel!(unhideApp:)),
+            add_button: ("Hide App\u{2026}", sel!(hideApps:)),
+        }, target, mtm);
 
         let heading = label("Keyboard shortcut", mtm);
         heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));

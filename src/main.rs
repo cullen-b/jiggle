@@ -465,7 +465,7 @@ fn square(c: NSPoint, half: f64) -> NSRect {
 }
 
 /// Finder, the Dock's pinned apps, the user's own added apps, then other running apps.
-/// With `open_only`, only running apps and the user's own added apps.
+/// With `open_only`, only running apps and the user's own added apps. Hidden apps never appear.
 fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) -> Vec<App> {
     let ws = NSWorkspace::sharedWorkspace();
     let mut running = Vec::new();
@@ -480,6 +480,7 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
 
     let mut paths = vec!["/System/Library/CoreServices/Finder.app".to_string()];
     paths.extend(dock::pinned_paths().into_iter().filter(|p| std::path::Path::new(p).exists()));
+    let hidden: HashSet<String> = settings::hidden_apps().into_iter().collect();
     let extras: HashSet<String> = settings::extra_apps().into_iter().filter(|p| std::path::Path::new(p).exists()).collect();
     paths.extend(settings::extra_apps().into_iter().filter(|p| extras.contains(p)));
     paths.extend(running.iter().cloned());
@@ -489,6 +490,9 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
     let mut apps = Vec::new();
     for path in paths {
         let running = running_set.contains(path.as_str());
+        if hidden.contains(&path) {
+            continue;
+        }
         if (open_only && !running && !extras.contains(&path)) || !seen.insert(path.clone()) {
             continue;
         }
