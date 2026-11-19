@@ -35,8 +35,8 @@ const KEY_SHAKE: &str = "ShakeSensitivity";
 pub const DEFAULT_SHAKE: isize = 3;
 pub const MAX_SHAKE: isize = 5;
 const DEFAULT_OPACITY: isize = 80;
-pub const MIN_OPACITY: isize = 10;
-const OPACITIES: [isize; 5] = [20, 40, 60, 80, 100];
+pub const MIN_OPACITY: isize = 0;
+const OPACITIES: [isize; 6] = [0, 20, 40, 60, 80, 100];
 const TAG_ALL: isize = 1;
 const TAG_OPEN: isize = 2;
 const TAG_OPACITY_MENU: isize = 3;
@@ -54,10 +54,13 @@ pub fn set_open_apps_only(on: bool) {
     defaults().setBool_forKey(on, &NSString::from_str(KEY_OPEN_ONLY));
 }
 
-/// Opacity of the ring's background, 0.1 to 1.0.
+/// Opacity of the ring's background, 0.0 (icons float on their own) to 1.0.
 pub fn ring_opacity() -> f64 {
-    let v = defaults().integerForKey(&NSString::from_str(KEY_OPACITY));
-    let v = if v <= 0 { DEFAULT_OPACITY } else { v.clamp(MIN_OPACITY, 100) };
+    let key = NSString::from_str(KEY_OPACITY);
+    let v = match defaults().objectForKey(&key) {
+        None => DEFAULT_OPACITY,
+        Some(_) => defaults().integerForKey(&key).clamp(MIN_OPACITY, 100),
+    };
     v as f64 / 100.0
 }
 
@@ -371,5 +374,12 @@ mod tests {
         assert_eq!(extra_apps(), ["/Applications/A.app"]);
         defaults().removeObjectForKey(&key);
         assert!(extra_apps().is_empty());
+
+        // 0% is a real choice, not "unset".
+        let key = NSString::from_str(KEY_OPACITY);
+        assert_eq!(opacity_percent(), DEFAULT_OPACITY);
+        set_opacity_percent(0);
+        assert_eq!(opacity_percent(), 0);
+        defaults().removeObjectForKey(&key);
     }
 }
