@@ -48,6 +48,7 @@ define_class!(
         fn keep_in_jiggle(&self, item: &NSMenuItem) {
             if let Some(p) = item_path(item) {
                 settings::set_extra_app(&p, true);
+                settings::changed();
             }
         }
 
@@ -55,6 +56,7 @@ define_class!(
         fn remove_from_jiggle(&self, item: &NSMenuItem) {
             if let Some(p) = item_path(item) {
                 settings::set_extra_app(&p, false);
+                settings::changed();
             }
         }
 

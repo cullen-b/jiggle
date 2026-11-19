@@ -1,6 +1,11 @@
-//! User settings (kept in NSUserDefaults) and the menu bar menu that changes them.
+//! User settings and the Jiggle menu that changes them.
+//!
+//! Settings live in the `local.jiggle` defaults domain so people and AI agents can also change them from a
+//! terminal (`defaults write local.jiggle RingOpacity -int 60`); the ring re-reads them each time it opens.
+//! Keep the README's settings table in sync with the keys below.
 
 use std::cell::OnceCell;
+use std::ffi::c_void;
 
 use objc2::rc::Retained;
 use objc2::runtime::Sel;
@@ -9,26 +14,48 @@ use objc2_app_kit::{
     NSApplication, NSControlStateValueOff, NSControlStateValueOn, NSImage, NSMenu, NSMenuItem, NSModalResponseOK,
     NSOpenPanel, NSStatusBar, NSStatusItem,
 };
-use objc2_foundation::{ns_string, NSArray, NSObject, NSString, NSURL, NSUserDefaults};
+use objc2_foundation::{ns_string, NSArray, NSObject, NSPoint, NSString, NSURL, NSUserDefaults};
+
+use crate::settings_window;
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFPreferencesAppSynchronize(app: *const c_void) -> bool;
+    static kCFPreferencesCurrentApplication: *const c_void;
+}
 
 const KEY_OPEN_ONLY: &str = "OpenAppsOnly";
 const KEY_OPACITY: &str = "RingOpacity";
 const KEY_EXTRA_APPS: &str = "ExtraApps";
 const DEFAULT_OPACITY: isize = 80;
+pub const MIN_OPACITY: isize = 10;
 const OPACITIES: [isize; 5] = [20, 40, 60, 80, 100];
 const TAG_ALL: isize = 1;
 const TAG_OPEN: isize = 2;
 const TAG_OPACITY_MENU: isize = 3;
 
+/// Picks up changes another process (e.g. `defaults write`) made since we last read.
+pub fn reload() {
+    unsafe { CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) };
+}
+
 pub fn open_apps_only() -> bool {
     defaults().boolForKey(&NSString::from_str(KEY_OPEN_ONLY))
 }
 
-/// Opacity of the ring's background, 0.2 to 1.0.
+pub fn set_open_apps_only(on: bool) {
+    defaults().setBool_forKey(on, &NSString::from_str(KEY_OPEN_ONLY));
+}
+
+/// Opacity of the ring's background, 0.1 to 1.0.
 pub fn ring_opacity() -> f64 {
     let v = defaults().integerForKey(&NSString::from_str(KEY_OPACITY));
-    let v = if v <= 0 { DEFAULT_OPACITY } else { v.min(100) };
+    let v = if v <= 0 { DEFAULT_OPACITY } else { v.clamp(MIN_OPACITY, 100) };
     v as f64 / 100.0
+}
+
+pub fn set_opacity_percent(v: isize) {
+    defaults().setInteger_forKey(v.clamp(MIN_OPACITY, 100), &NSString::from_str(KEY_OPACITY));
 }
 
 /// Apps the user added to the ring themselves; shown even when closed and not in the Dock.
@@ -51,7 +78,7 @@ pub fn set_extra_app(path: &str, keep: bool) {
     unsafe { defaults().setObject_forKey(Some(&array), &NSString::from_str(KEY_EXTRA_APPS)) };
 }
 
-fn opacity_percent() -> isize {
+pub fn opacity_percent() -> isize {
     (ring_opacity() * 100.0).round() as isize
 }
 
@@ -78,19 +105,32 @@ define_class!(
     impl Target {
         #[unsafe(method(pickMode:))]
         fn pick_mode(&self, item: &NSMenuItem) {
-            defaults().setBool_forKey(item.tag() == TAG_OPEN, &NSString::from_str(KEY_OPEN_ONLY));
-            sync();
+            set_open_apps_only(item.tag() == TAG_OPEN);
+            changed();
         }
 
         #[unsafe(method(pickOpacity:))]
         fn pick_opacity(&self, item: &NSMenuItem) {
-            defaults().setInteger_forKey(item.tag(), &NSString::from_str(KEY_OPACITY));
-            sync();
+            set_opacity_percent(item.tag());
+            changed();
         }
 
         #[unsafe(method(addApps:))]
         fn add_apps(&self, _item: &NSMenuItem) {
             add_apps(MainThreadMarker::from(self));
+            changed();
+        }
+
+        #[unsafe(method(openSettings:))]
+        fn open_settings(&self, _item: &NSMenuItem) {
+            settings_window::show(MainThreadMarker::from(self));
+        }
+
+        // NSMenuDelegate: refresh checkmarks in case settings changed from elsewhere.
+        #[unsafe(method(menuWillOpen:))]
+        fn menu_will_open(&self, _menu: &NSMenu) {
+            reload();
+            sync();
         }
 
         #[unsafe(method(quit:))]
@@ -133,6 +173,7 @@ pub fn install_menu(mtm: MainThreadMarker) {
     add(&menu, "Ring opacity", None, TAG_OPACITY_MENU).setSubmenu(Some(&opacity));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     add(&menu, "Add App to Jiggle\u{2026}", Some(sel!(addApps:)), 0);
+    add(&menu, "Settings\u{2026}", Some(sel!(openSettings:)), 0);
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     add(&menu, "Quit Jiggle", Some(sel!(quit:)), 0);
 
@@ -147,14 +188,29 @@ pub fn install_menu(mtm: MainThreadMarker) {
         }
     }
     item.setMenu(Some(&menu));
+    let _: () = unsafe { msg_send![&*menu, setDelegate: &*target] };
     MENU.with(|m| {
         let _ = m.set(Menu { _item: item, menu, _target: target });
     });
     sync();
 }
 
+/// Shows the Jiggle menu at a screen point (right-click on the ring's center); returns once it closes.
+pub fn popup_menu(at: NSPoint) {
+    let menu = MENU.with(|m| m.get().map(|m| m.menu.clone()));
+    if let Some(menu) = menu {
+        menu.popUpMenuPositioningItem_atLocation_inView(None, at, None);
+    }
+}
+
+/// Call after any setting changes so the menu and the Settings window show it.
+pub fn changed() {
+    sync();
+    settings_window::refresh();
+}
+
 /// Lets the user pick apps to keep in the ring.
-fn add_apps(mtm: MainThreadMarker) {
+pub fn add_apps(mtm: MainThreadMarker) {
     // An accessory app has to come forward for its panel to show on top.
     #[allow(deprecated)]
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
