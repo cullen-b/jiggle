@@ -52,7 +52,7 @@ time the ring opens; no restart needed.
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `OpenAppsOnly` | bool | `false` | Show only running apps (plus apps you added) instead of all Dock apps |
-| `RingOpacity` | int, 10–100 | `80` | Opacity of the ring's background, in percent |
+| `RingOpacity` | int, 0–100 | `80` | Opacity of the ring's background, in percent |
 | `ExtraApps` | array of `.app` paths | empty | Apps always shown in the ring, even when closed and not in the Dock |
 | `HiddenApps` | array of `.app` paths | empty | Apps never shown in the ring, even when open or in the Dock |
 | `ShakeSensitivity` | int, 0–5 | `3` | How easily a mouse shake opens the ring: `1` very firm … `5` very light; `0` turns shaking off (use the shortcut) |
