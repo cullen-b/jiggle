@@ -68,6 +68,11 @@
     transition: transform .35s var(--spring), opacity .2s;
   }
   body.open #disc { transform: scale(1); opacity: 1; }
+  #wedge {
+    position: absolute; inset: 0; border-radius: 50%; opacity: 0;
+    transition: transform .22s cubic-bezier(.2, .8, .2, 1), opacity .2s;
+  }
+  body.picking #wedge { opacity: 1; }
   .tile {
     position: absolute; left: 0; top: 0;
     width: var(--tile); height: var(--tile); margin: calc(var(--tile) / -2) 0 0 calc(var(--tile) / -2);
@@ -188,7 +193,7 @@
   </svg>
 </div>
 
-<div id="ring"><div id="disc"></div></div>
+<div id="ring"><div id="disc"><div id="wedge"></div></div></div>
 <div id="app" role="status"></div>
 
 <a class="mark" translate="no" href="https://github.com/cullen-b/jiggle" aria-label="jiggle on GitHub"><span>j</span><span>i</span><span>g</span><span>g</span><span>l</span><span>e</span></a>
@@ -287,7 +292,9 @@
     return b;
   });
 
-  let open = false, sel = -1, cx = 0, cy = 0, R = 120, everOpened = false;
+  let open = false, sel = -1, cx = 0, cy = 0, R = 120, outerR = 170, everOpened = false;
+  const wedge = document.getElementById('wedge');
+  let wedgeDeg = 0;
   let px = innerWidth / 2, py = innerHeight / 2, lastX = null, lastY = null;
   let fx = px, fy = py, energy = 0, lastTap = 0;
 
@@ -301,6 +308,9 @@
       t.style.setProperty('--x', `${R * Math.cos(a)}px`);
       t.style.setProperty('--y', `${-R * Math.sin(a)}px`);
     });
+    outerR = outer;
+    const half = 180 / APPS.length;
+    wedge.style.background = `conic-gradient(from ${-half}deg, rgba(255,255,255,.2) 0deg ${2 * half}deg, transparent ${2 * half}deg)`;
     return outer;
   }
 
@@ -331,14 +341,23 @@
   function select(i) {
     if (i === sel) return;
     if (sel >= 0) tiles[sel].classList.remove('sel');
+    const from = sel;
     sel = i;
-    if (sel >= 0) tiles[sel].classList.add('sel');
+    if (sel >= 0) {
+      tiles[sel].classList.add('sel');
+      // Turn the pie slice the short way round; jump straight there when nothing was selected.
+      const target = sel * 360 / APPS.length;
+      wedgeDeg += ((target - wedgeDeg) % 360 + 540) % 360 - 180;
+      if (from < 0) wedge.style.transition = 'none';
+      wedge.style.transform = `rotate(${wedgeDeg}deg)`;
+      if (from < 0) { void wedge.offsetWidth; wedge.style.transition = ''; }
+    }
     body.classList.toggle('picking', sel >= 0);
   }
 
   function pick(x, y) {
     const vx = x - cx, vy = cy - y, d = Math.hypot(vx, vy);
-    if (d < Math.max(28, R * 0.35)) return -1;
+    if (d < 14 || d > outerR) return -1;
     const step = 2 * Math.PI / APPS.length;
     const k = Math.round((Math.PI / 2 - Math.atan2(vy, vx)) / step);
     return ((k % APPS.length) + APPS.length) % APPS.length;

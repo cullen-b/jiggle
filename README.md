@@ -6,8 +6,11 @@ Try it: https://cullen-b.github.io/jiggle/
 
 Like it? [Buy me a coffee](https://payme.cullenbaker.com).
 
-Shake the mouse anywhere and your Dock apps appear in a ring around the pointer. Point toward one
-and click to open (or switch to) it. Esc, right-click, any key, or clicking the middle dismisses it.
+Shake the mouse anywhere and your Dock apps appear in a ring around the pointer. The ring is a pie:
+click anywhere in an app's slice to open (or switch to) it. Click outside the ring, right-click or press
+Esc to close it.
+
+The menu bar icon chooses between all Dock apps and only open apps, sets the ring's opacity, and quits.
 
 Order matches the Dock: Finder, pinned apps, then other running apps (dot = running).
 
