@@ -17,6 +17,7 @@ use objc2_app_kit::{
 use objc2_foundation::{ns_string, NSArray, NSObject, NSPoint, NSString, NSURL, NSUserDefaults};
 
 use crate::settings_window;
+use crate::shortcut::Shortcut;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
@@ -27,6 +28,7 @@ extern "C" {
 const KEY_OPEN_ONLY: &str = "OpenAppsOnly";
 const KEY_OPACITY: &str = "RingOpacity";
 const KEY_EXTRA_APPS: &str = "ExtraApps";
+const KEY_SHORTCUT: &str = "Shortcut";
 const DEFAULT_OPACITY: isize = 80;
 pub const MIN_OPACITY: isize = 10;
 const OPACITIES: [isize; 5] = [20, 40, 60, 80, 100];
@@ -76,6 +78,20 @@ pub fn set_extra_app(path: &str, keep: bool) {
     let strings: Vec<Retained<NSString>> = apps.iter().map(|p| NSString::from_str(p)).collect();
     let array = NSArray::from_retained_slice(&strings);
     unsafe { defaults().setObject_forKey(Some(&array), &NSString::from_str(KEY_EXTRA_APPS)) };
+}
+
+/// The system-wide shortcut that opens the ring; None (the default) means off.
+pub fn shortcut() -> Option<Shortcut> {
+    let text = defaults().stringForKey(&NSString::from_str(KEY_SHORTCUT))?;
+    Shortcut::parse(&text.to_string())
+}
+
+pub fn set_shortcut(shortcut: Option<Shortcut>) {
+    let key = NSString::from_str(KEY_SHORTCUT);
+    match shortcut {
+        Some(s) => unsafe { defaults().setObject_forKey(Some(&NSString::from_str(&s.to_setting())), &key) },
+        None => defaults().removeObjectForKey(&key),
+    }
 }
 
 pub fn opacity_percent() -> isize {

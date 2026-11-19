@@ -51,6 +51,7 @@ time the ring opens; no restart needed.
 | `OpenAppsOnly` | bool | `false` | Show only running apps (plus apps you added) instead of all Dock apps |
 | `RingOpacity` | int, 10–100 | `80` | Opacity of the ring's background, in percent |
 | `ExtraApps` | array of `.app` paths | empty | Apps always shown in the ring, even when closed and not in the Dock |
+| `Shortcut` | string | unset (off) | System-wide shortcut that opens and closes the ring, e.g. `ctrl+opt+space`. Modifiers: `cmd`, `ctrl`, `opt`, `shift`; key: a letter, digit, `space`, `return`, `tab`, `f1`–`f20`, an arrow (`left`…), or `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `quote`, `backslash`, `grave`, `leftbracket`, `rightbracket`, `delete`. Needs `cmd`, `ctrl` or `opt` unless it's an F-key |
 
 ```sh
 defaults read local.jiggle                                              # current settings
@@ -58,6 +59,8 @@ defaults write local.jiggle OpenAppsOnly -bool true
 defaults write local.jiggle RingOpacity -int 60
 defaults write local.jiggle ExtraApps -array-add "/System/Applications/Notes.app"
 defaults write local.jiggle ExtraApps -array "/Applications/Safari.app" "/System/Applications/Notes.app"
+defaults write local.jiggle Shortcut -string "ctrl+opt+space"           # turn the shortcut on
+defaults delete local.jiggle Shortcut                                   # turn it off again
 defaults delete local.jiggle RingOpacity                                # back to the default
 ```
 

@@ -1,6 +1,6 @@
 //! The Settings window: the same settings as the Jiggle menu, plus the list of apps the user added.
 
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
@@ -11,6 +11,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSFileManager, NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use crate::settings;
+use crate::shortcut;
 
 const WIDTH: f64 = 420.0;
 const MARGIN: f64 = 20.0;
@@ -24,6 +25,8 @@ struct State {
 thread_local! {
     static STATE: OnceCell<State> = const { OnceCell::new() };
     static OPACITY_LABEL: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
+    // Shown under the shortcut row after a key press that can't be a shortcut on its own.
+    static SHORTCUT_HINT: Cell<bool> = const { Cell::new(false) };
 }
 
 define_class!(
@@ -51,6 +54,25 @@ define_class!(
             if let Some(path) = settings::extra_apps().get(button.tag() as usize) {
                 settings::set_extra_app(path, false);
             }
+            settings::changed();
+        }
+
+        #[unsafe(method(recordShortcut:))]
+        fn record_shortcut(&self, _button: &NSButton) {
+            SHORTCUT_HINT.with(|h| h.set(false));
+            shortcut::set_recording(true);
+            settings::changed();
+        }
+
+        #[unsafe(method(stopRecording:))]
+        fn stop_recording(&self, _button: &NSButton) {
+            shortcut::set_recording(false);
+            settings::changed();
+        }
+
+        #[unsafe(method(clearShortcut:))]
+        fn clear_shortcut(&self, _button: &NSButton) {
+            settings::set_shortcut(None);
             settings::changed();
         }
 
@@ -98,10 +120,26 @@ pub fn show(mtm: MainThreadMarker) {
     });
 }
 
+pub fn is_visible() -> bool {
+    STATE.with(|s| s.get().is_some_and(|s| s.window.isVisible()))
+}
+
+/// A key press while recording a shortcut (called from the event tap).
+pub fn recorded_key(key: u16, flags: u64) {
+    match shortcut::record(key, flags) {
+        shortcut::Recorded::Cancelled => shortcut::set_recording(false),
+        shortcut::Recorded::Got(s) => {
+            shortcut::set_recording(false);
+            settings::set_shortcut(Some(s));
+        }
+        shortcut::Recorded::NeedsModifier => SHORTCUT_HINT.with(|h| h.set(true)),
+    }
+    settings::changed();
+}
+
 /// Redraws the window if it is open, after a setting changed somewhere else.
 pub fn refresh() {
-    let visible = STATE.with(|s| s.get().is_some_and(|s| s.window.isVisible()));
-    if visible {
+    if is_visible() {
         rebuild(MainThreadMarker::new().expect("main thread"));
     }
 }
@@ -134,7 +172,10 @@ fn rebuild(mtm: MainThreadMarker) {
         let target = &s.target;
         let apps = settings::extra_apps();
         let rows = apps.len().max(1) as f64;
-        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0 + 22.0 + rows * ROW + 8.0 + 30.0 + 20.0 + 48.0 + MARGIN;
+        let recording = shortcut::is_recording();
+        let hint = recording && SHORTCUT_HINT.with(Cell::get);
+        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0 + 22.0 + rows * ROW + 8.0 + 30.0 + 20.0
+            + 22.0 + 30.0 + if hint { 22.0 } else { 0.0 } + 20.0 + 48.0 + MARGIN;
         let content = NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(WIDTH, height)));
         let inner = WIDTH - 2.0 * MARGIN;
         let mut top = height - MARGIN;
@@ -200,6 +241,48 @@ fn rebuild(mtm: MainThreadMarker) {
             NSButton::buttonWithTitle_target_action(&NSString::from_str("Add App\u{2026}"), Some(target), Some(sel!(addApps:)), mtm)
         };
         place(&content, &mut top, &add, MARGIN - 6.0, 120.0, 30.0, true);
+        top -= 20.0;
+
+        let heading = label("Keyboard shortcut", mtm);
+        heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+        place(&content, &mut top, &heading, MARGIN, inner, 22.0, true);
+        let current = settings::shortcut();
+        let status = match (recording, current) {
+            (true, _) => "Press the keys now (Esc cancels)".to_string(),
+            (false, Some(s)) => s.display(),
+            (false, None) => "Off".to_string(),
+        };
+        let status = label(&status, mtm);
+        if current.is_none() && !recording {
+            status.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        }
+        // The status text gets whatever room the buttons on the right leave.
+        let buttons_width = match (recording, current) {
+            (true, _) => 120.0,
+            (false, Some(_)) => 240.0,
+            (false, None) => 170.0,
+        };
+        status.setFrame(NSRect::new(NSPoint::new(MARGIN, top - 27.0), NSSize::new(inner - buttons_width, 22.0)));
+        content.addSubview(&status);
+        let button = |title: &str, action| unsafe {
+            NSButton::buttonWithTitle_target_action(&NSString::from_str(title), Some(target), Some(action), mtm)
+        };
+        if recording {
+            place(&content, &mut top, &button("Cancel", sel!(stopRecording:)), WIDTH - MARGIN - 110.0, 110.0, 30.0, true);
+        } else {
+            let record = button(if current.is_some() { "Change\u{2026}" } else { "Record Shortcut\u{2026}" }, sel!(recordShortcut:));
+            if current.is_some() {
+                place(&content, &mut top, &record, WIDTH - MARGIN - 228.0, 110.0, 30.0, false);
+                place(&content, &mut top, &button("Turn Off", sel!(clearShortcut:)), WIDTH - MARGIN - 110.0, 110.0, 30.0, true);
+            } else {
+                place(&content, &mut top, &record, WIDTH - MARGIN - 160.0, 160.0, 30.0, true);
+            }
+        }
+        if hint {
+            let h = label("Include \u{2318}, \u{2303} or \u{2325} (or use an F-key).", mtm);
+            h.setTextColor(Some(&NSColor::systemRedColor()));
+            place(&content, &mut top, &h, MARGIN, inner, 22.0, true);
+        }
         top -= 20.0;
 
         let tip = NSTextField::wrappingLabelWithString(

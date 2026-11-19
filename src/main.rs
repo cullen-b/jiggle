@@ -7,6 +7,7 @@ mod appmenu;
 mod dock;
 mod settings;
 mod settings_window;
+mod shortcut;
 mod update;
 
 use std::cell::{OnceCell, RefCell};
@@ -50,6 +51,7 @@ extern "C" {
     fn CGEventGetLocation(event: *mut c_void) -> NSPoint;
     fn CGEventGetDoubleValueField(event: *mut c_void, field: u32) -> f64;
     fn CGEventGetIntegerValueField(event: *mut c_void, field: u32) -> i64;
+    fn CGEventGetFlags(event: *mut c_void) -> u64;
 }
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
@@ -75,6 +77,7 @@ const TAP_DISABLED_USER: u32 = 0xFFFF_FFFF;
 const FIELD_DELTA_X: u32 = 4;
 const FIELD_DELTA_Y: u32 = 5;
 const FIELD_KEYCODE: u32 = 9;
+const FIELD_AUTOREPEAT: u32 = 8;
 const KEY_ESCAPE: i64 = 53;
 
 static TAP: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
@@ -613,6 +616,40 @@ fn on_click(left: bool) -> bool {
     true
 }
 
+/// Shortcut handling for a key press; returns true when the key was ours and must be swallowed.
+fn on_key(ev: *mut c_void) -> bool {
+    let (key, flags, repeat) = unsafe {
+        (
+            CGEventGetIntegerValueField(ev, FIELD_KEYCODE) as u16,
+            CGEventGetFlags(ev),
+            CGEventGetIntegerValueField(ev, FIELD_AUTOREPEAT) != 0,
+        )
+    };
+    if shortcut::is_recording() {
+        // Recording only makes sense while the Settings window is up to show it.
+        if !settings_window::is_visible() {
+            shortcut::set_recording(false);
+            return false;
+        }
+        if !repeat {
+            settings_window::recorded_key(key, flags);
+        }
+        return true;
+    }
+    if !shortcut::could_be_shortcut(key, flags) || !settings::shortcut().is_some_and(|s| s.matches(key, flags)) {
+        return false;
+    }
+    // Holding the keys down repeats the press; only the first one toggles the ring.
+    if !repeat {
+        if MODEL.with(|m| m.borrow().visible) {
+            hide();
+        } else {
+            show(NSEvent::mouseLocation(), MainThreadMarker::new().expect("main thread"));
+        }
+    }
+    true
+}
+
 unsafe extern "C" fn on_event(_proxy: *mut c_void, ty: u32, ev: *mut c_void, _user: *mut c_void) -> *mut c_void {
     // The tap's run loop source lives on the main run loop.
     let mtm = MainThreadMarker::new_unchecked();
@@ -632,6 +669,9 @@ unsafe extern "C" fn on_event(_proxy: *mut c_void, ty: u32, ev: *mut c_void, _us
             }
         }
         KEY_DOWN => {
+            if on_key(ev) {
+                return null_mut();
+            }
             if MODEL.with(|m| m.borrow().visible) {
                 hide();
                 if CGEventGetIntegerValueField(ev, FIELD_KEYCODE) == KEY_ESCAPE {
