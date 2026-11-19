@@ -38,8 +38,9 @@ jobs:
           security unlock-keychain -p "$kp" "$kc"
           security import "$RUNNER_TEMP/signing.p12" -k "$kc" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$kp" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/signing.p12"
-          codesign --force --options runtime --keychain "$kc" --sign "jiggle code signing" --identifier local.jiggle dist/Jiggle.app
+          codesign --force --options runtime --keychain "$kc" --sign "$(sed -n 's/.*H"\([0-9A-Fa-f]*\)".*/\1/p' scripts/requirement.txt)" --identifier local.jiggle dist/Jiggle.app
           codesign --verify --deep --strict -R="$(cat scripts/requirement.txt)" dist/Jiggle.app
           security delete-keychain "$kc"
 
