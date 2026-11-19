@@ -162,14 +162,13 @@
   }
   .pill:active { transform: scale(.96); }
   .pill:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
-  .ask { background: var(--paper); color: var(--ink); box-shadow: 0 10px 24px -10px rgba(8, 12, 60, .6); }
   /* Copy and check icons cross-fade in place. */
   .ask .ic svg { position: absolute; transition: opacity .2s cubic-bezier(.2, 0, 0, 1), transform .2s cubic-bezier(.2, 0, 0, 1), filter .2s; }
   .ask svg.done, .ask.copied svg.idle { opacity: 0; transform: scale(.25); filter: blur(4px); }
   .ask.copied svg.done { opacity: 1; transform: none; filter: none; }
   .ask .label .done, .ask.copied .label .idle { display: none; }
   .ask.copied .label .done { display: inline-block; }
-  .ask.copied { background: #3ddc97; }
+  .ask.copied { background: #3ddc97; color: var(--ink); }
   .mark:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; border-radius: 12px; }
 
   /* "What is jiggle?" */
