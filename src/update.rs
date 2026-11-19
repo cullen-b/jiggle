@@ -13,24 +13,39 @@ const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Starts the background update loop when running from an installed .app bundle.
 pub fn spawn() {
-    if std::env::var_os("JIGGLE_NO_UPDATE").is_some() {
-        return;
-    }
-    let Some(app) = app_bundle() else { return };
+    let Some(app) = installed_app() else { return };
     std::thread::spawn(move || {
         std::thread::sleep(FIRST_CHECK);
         loop {
-            match check_and_install(&app) {
-                Ok(Some(tag)) => {
-                    eprintln!("jiggle: updated to {tag}, restarting");
-                    restart(&app);
-                }
-                Ok(None) => {}
-                Err(e) => eprintln!("jiggle: update check failed: {e}"),
-            }
+            check_once(&app);
             std::thread::sleep(CHECK_EVERY);
         }
     });
+}
+
+/// One blocking check, for when the app is stuck waiting for permission and the loop never gets going.
+pub fn check_now() {
+    if let Some(app) = installed_app() {
+        check_once(&app);
+    }
+}
+
+fn installed_app() -> Option<PathBuf> {
+    if std::env::var_os("JIGGLE_NO_UPDATE").is_some() {
+        return None;
+    }
+    app_bundle()
+}
+
+fn check_once(app: &Path) {
+    match check_and_install(app) {
+        Ok(Some(tag)) => {
+            eprintln!("jiggle: updated to {tag}, restarting");
+            restart(app);
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("jiggle: update check failed: {e}"),
+    }
 }
 
 fn app_bundle() -> Option<PathBuf> {
