@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="160" alt="jiggle logo"></p>
+
 # jiggle
 
 Try it: https://cullen-b.github.io/jiggle/
