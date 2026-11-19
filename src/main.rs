@@ -1,7 +1,9 @@
 //! jiggle: shake the mouse to summon your Dock apps in a ring around the pointer.
 //! The ring is a pie: click anywhere in an app's slice to open it. Clicking outside the ring, its center,
-//! right-clicking or pressing Esc closes it. The menu bar icon holds the settings.
+//! or pressing Esc closes it. Right-clicking an app shows its Dock-style menu. The menu bar icon holds the settings.
 
+mod appmenu;
+mod dock;
 mod settings;
 mod update;
 
@@ -17,14 +19,11 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBezierPath, NSColor,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBezierPath, NSColor, NSEvent,
     NSFont, NSFontAttributeName, NSForegroundColorAttributeName, NSImage, NSPanel, NSScreen,
     NSStringDrawing, NSView, NSWindowCollectionBehavior, NSWindowStyleMask, NSWorkspace,
 };
-use objc2_foundation::{
-    ns_string, NSArray, NSDictionary, NSFileManager, NSNumber, NSPoint, NSRect, NSSize, NSString,
-    NSURL, NSUserDefaults,
-};
+use objc2_foundation::{NSDictionary, NSFileManager, NSNumber, NSPoint, NSRect, NSSize, NSString, NSURL};
 
 // Shake: this many direction reversals, each after a leg of at least SHAKE_MIN_LEG points, within SHAKE_WINDOW.
 const SHAKE_REVERSALS: usize = 4;
@@ -79,6 +78,7 @@ const KEY_ESCAPE: i64 = 53;
 static TAP: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 
 struct App {
+    path: String,
     url: Retained<NSURL>,
     name: Retained<NSString>,
     icon: Retained<NSImage>,
@@ -137,6 +137,9 @@ struct Model {
     y: Axis,
     cooldown: Instant,
     swallow_up: bool,
+    // Index of the app whose right-click menu is waiting to open, and whether it is open now.
+    menu_for: Option<usize>,
+    menu_open: bool,
 }
 
 struct Ui {
@@ -166,6 +169,8 @@ thread_local! {
         y: Axis::default(),
         cooldown: Instant::now(),
         swallow_up: false,
+        menu_for: None,
+        menu_open: false,
     });
     static UI: OnceCell<Ui> = const { OnceCell::new() };
 }
@@ -180,6 +185,11 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
             draw(self.bounds());
+        }
+
+        #[unsafe(method(jiggleMenu))]
+        fn open_menu(&self) {
+            show_app_menu();
         }
 
         #[unsafe(method(jiggleTick))]
@@ -380,21 +390,7 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
     let running_set: HashSet<&str> = running.iter().map(String::as_str).collect();
 
     let mut paths = vec!["/System/Library/CoreServices/Finder.app".to_string()];
-    if let Some(dock) = NSUserDefaults::standardUserDefaults().persistentDomainForName(ns_string!("com.apple.dock")) {
-        let urls: Option<Retained<NSArray>> = unsafe {
-            msg_send![&*dock, valueForKeyPath: ns_string!("persistent-apps.tile-data.file-data._CFURLString")]
-        };
-        for item in urls.iter().flat_map(|a| a.iter()) {
-            let Some(s) = item.downcast_ref::<NSString>() else { continue };
-            let path = match NSURL::URLWithString(s).filter(|u| u.isFileURL()).and_then(|u| u.path()) {
-                Some(p) => p.to_string(),
-                None => s.to_string(),
-            };
-            if std::path::Path::new(&path).exists() {
-                paths.push(path);
-            }
-        }
-    }
+    paths.extend(dock::pinned_paths().into_iter().filter(|p| std::path::Path::new(p).exists()));
     paths.extend(running.iter().cloned());
 
     let fm = NSFileManager::defaultManager();
@@ -408,6 +404,7 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
         let ns = NSString::from_str(&path);
         let icon = icons.entry(path.clone()).or_insert_with(|| ws.iconForFile(&ns)).clone();
         apps.push(App {
+            path: path.clone(),
             url: NSURL::fileURLWithPath(&ns),
             name: fm.displayNameAtPath(&ns),
             icon,
@@ -526,6 +523,46 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
     }
 }
 
+/// Right-click on an app opens its menu (once this event returns); anywhere else it closes the ring.
+fn on_right_click() -> bool {
+    let (visible, target) = MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        if !m.visible {
+            return (false, None);
+        }
+        m.swallow_up = true;
+        m.menu_for = m.selected;
+        (true, m.selected)
+    });
+    if !visible {
+        return false;
+    }
+    match target {
+        Some(_) => UI.with(|ui| {
+            let view = &ui.get().expect("ui").view;
+            let none: Option<&AnyObject> = None;
+            let _: () = unsafe { msg_send![&**view, performSelector: sel!(jiggleMenu), withObject: none, afterDelay: 0.0f64] };
+        }),
+        None => hide(),
+    }
+    true
+}
+
+fn show_app_menu() {
+    let mtm = MainThreadMarker::new().expect("main thread");
+    let path = MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        let path = m.menu_for.take().filter(|_| m.visible).and_then(|i| m.apps.get(i)).map(|a| a.path.clone());
+        m.menu_open = path.is_some();
+        path
+    });
+    let Some(path) = path else { return };
+    // The ring stays up behind the menu so it's clear which app it's for; events pass through meanwhile.
+    appmenu::popup(&path, NSEvent::mouseLocation(), mtm);
+    MODEL.with(|m| m.borrow_mut().menu_open = false);
+    hide();
+}
+
 /// Returns true when the click was ours and must be swallowed.
 fn on_click(left: bool) -> bool {
     let (visible, url) = MODEL.with(|m| {
@@ -552,14 +589,16 @@ unsafe extern "C" fn on_event(_proxy: *mut c_void, ty: u32, ev: *mut c_void, _us
     let mtm = MainThreadMarker::new_unchecked();
     match ty {
         TAP_DISABLED_TIMEOUT | TAP_DISABLED_USER => CGEventTapEnable(TAP.load(Ordering::Relaxed), true),
+        L_UP | R_UP | O_UP if MODEL.with(|m| std::mem::take(&mut m.borrow_mut().swallow_up)) => return null_mut(),
+        _ if MODEL.with(|m| m.borrow().menu_open) => {}
         MOVED | L_DRAG | R_DRAG | O_DRAG => on_move(ev, mtm),
-        L_DOWN | R_DOWN | O_DOWN => {
-            if on_click(ty == L_DOWN) {
+        R_DOWN => {
+            if on_right_click() {
                 return null_mut();
             }
         }
-        L_UP | R_UP | O_UP => {
-            if MODEL.with(|m| std::mem::take(&mut m.borrow_mut().swallow_up)) {
+        L_DOWN | O_DOWN => {
+            if on_click(ty == L_DOWN) {
                 return null_mut();
             }
         }
