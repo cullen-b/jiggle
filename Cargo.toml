@@ -1,0 +1,17 @@
+[package]
+name = "jiggle"
+version = "0.1.0"
+edition = "2021"
+description = "Shake the mouse to summon your Dock apps in a ring around the pointer (macOS)."
+
+[dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
