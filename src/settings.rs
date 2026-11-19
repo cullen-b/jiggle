@@ -29,6 +29,7 @@ const KEY_OPEN_ONLY: &str = "OpenAppsOnly";
 const KEY_OPACITY: &str = "RingOpacity";
 const KEY_EXTRA_APPS: &str = "ExtraApps";
 const KEY_SHORTCUT: &str = "Shortcut";
+const KEY_HIDDEN_APPS: &str = "HiddenApps";
 const DEFAULT_OPACITY: isize = 80;
 pub const MIN_OPACITY: isize = 10;
 const OPACITIES: [isize; 5] = [20, 40, 60, 80, 100];
@@ -60,24 +61,49 @@ pub fn set_opacity_percent(v: isize) {
     defaults().setInteger_forKey(v.clamp(MIN_OPACITY, 100), &NSString::from_str(KEY_OPACITY));
 }
 
-/// Apps the user added to the ring themselves; shown even when closed and not in the Dock.
-pub fn extra_apps() -> Vec<String> {
+fn read_list(key: &str) -> Vec<String> {
     defaults()
-        .stringArrayForKey(&NSString::from_str(KEY_EXTRA_APPS))
+        .stringArrayForKey(&NSString::from_str(key))
         .map(|a| a.iter().map(|s| s.to_string()).collect())
         .unwrap_or_default()
 }
 
-/// Adds (`keep`) or removes an app from the user's own list.
-pub fn set_extra_app(path: &str, keep: bool) {
-    let mut apps = extra_apps();
+/// Adds (`on`) or removes `path` from the list stored under `key`.
+fn set_in_list(key: &str, path: &str, on: bool) {
+    let mut apps = read_list(key);
     apps.retain(|p| p != path);
-    if keep {
+    if on {
         apps.push(path.to_string());
     }
     let strings: Vec<Retained<NSString>> = apps.iter().map(|p| NSString::from_str(p)).collect();
     let array = NSArray::from_retained_slice(&strings);
-    unsafe { defaults().setObject_forKey(Some(&array), &NSString::from_str(KEY_EXTRA_APPS)) };
+    unsafe { defaults().setObject_forKey(Some(&array), &NSString::from_str(key)) };
+}
+
+/// Apps the user added to the ring themselves; shown even when closed and not in the Dock.
+pub fn extra_apps() -> Vec<String> {
+    read_list(KEY_EXTRA_APPS)
+}
+
+/// Adds (`keep`) or removes an app from the user's own list. Adding one also un-hides it.
+pub fn set_extra_app(path: &str, keep: bool) {
+    set_in_list(KEY_EXTRA_APPS, path, keep);
+    if keep {
+        set_in_list(KEY_HIDDEN_APPS, path, false);
+    }
+}
+
+/// Apps that never appear in the ring, whether open, closed, in the Dock or added.
+pub fn hidden_apps() -> Vec<String> {
+    read_list(KEY_HIDDEN_APPS)
+}
+
+/// Hides an app from the ring for good (`hide`), or lets it appear again. Hiding one also un-adds it.
+pub fn set_hidden_app(path: &str, hide: bool) {
+    set_in_list(KEY_HIDDEN_APPS, path, hide);
+    if hide {
+        set_in_list(KEY_EXTRA_APPS, path, false);
+    }
 }
 
 /// The system-wide shortcut that opens the ring; None (the default) means off.
@@ -227,6 +253,20 @@ pub fn changed() {
 
 /// Lets the user pick apps to keep in the ring.
 pub fn add_apps(mtm: MainThreadMarker) {
+    for path in pick_apps(mtm, "Add to Jiggle", "Choose apps to keep in Jiggle's ring") {
+        set_extra_app(&path, true);
+    }
+}
+
+/// Lets the user pick apps that should never appear in the ring.
+pub fn hide_apps(mtm: MainThreadMarker) {
+    for path in pick_apps(mtm, "Hide", "Choose apps Jiggle should never show") {
+        set_hidden_app(&path, true);
+    }
+}
+
+/// An open panel in /Applications; returns the chosen .app paths.
+fn pick_apps(mtm: MainThreadMarker, prompt: &str, message: &str) -> Vec<String> {
     // An accessory app has to come forward for its panel to show on top.
     #[allow(deprecated)]
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
@@ -235,16 +275,12 @@ pub fn add_apps(mtm: MainThreadMarker) {
     panel.setCanChooseDirectories(false);
     panel.setAllowsMultipleSelection(true);
     panel.setDirectoryURL(Some(&NSURL::fileURLWithPath(ns_string!("/Applications"))));
-    panel.setPrompt(Some(ns_string!("Add to Jiggle")));
-    panel.setMessage(Some(ns_string!("Choose apps to keep in Jiggle's ring")));
+    panel.setPrompt(Some(&NSString::from_str(prompt)));
+    panel.setMessage(Some(&NSString::from_str(message)));
     if panel.runModal() != NSModalResponseOK {
-        return;
+        return Vec::new();
     }
-    for url in panel.URLs().iter() {
-        if let Some(path) = url.path().map(|p| p.to_string()).filter(|p| p.ends_with(".app")) {
-            set_extra_app(&path, true);
-        }
-    }
+    panel.URLs().iter().filter_map(|u| u.path().map(|p| p.to_string())).filter(|p| p.ends_with(".app")).collect()
 }
 
 /// Puts the checkmarks next to the current settings.
@@ -283,8 +319,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extra_apps_round_trip() {
-        let key = NSString::from_str(KEY_EXTRA_APPS);
+    // One test: the cases share the same defaults domain, so they can't run in parallel.
+    fn app_lists() {
+        let (extra, hidden) = (NSString::from_str(KEY_EXTRA_APPS), NSString::from_str(KEY_HIDDEN_APPS));
+        set_extra_app("/Applications/C.app", true);
+        set_hidden_app("/Applications/C.app", true);
+        assert_eq!(hidden_apps(), ["/Applications/C.app"]);
+        assert!(!extra_apps().iter().any(|p| p == "/Applications/C.app"));
+        set_extra_app("/Applications/C.app", true);
+        assert!(hidden_apps().is_empty());
+        defaults().removeObjectForKey(&extra);
+        defaults().removeObjectForKey(&hidden);
+
+        // Order is kept and re-adding moves an app to the end.
+        let key = extra;
         set_extra_app("/Applications/A.app", true);
         set_extra_app("/Applications/B.app", true);
         set_extra_app("/Applications/A.app", true);

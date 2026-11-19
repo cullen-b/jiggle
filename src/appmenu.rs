@@ -60,6 +60,14 @@ define_class!(
             }
         }
 
+        #[unsafe(method(neverShow:))]
+        fn never_show(&self, item: &NSMenuItem) {
+            if let Some(p) = item_path(item) {
+                settings::set_hidden_app(&p, true);
+                settings::changed();
+            }
+        }
+
         #[unsafe(method(showInFinder:))]
         fn show_in_finder(&self, item: &NSMenuItem) {
             if let Some(p) = item_path(item) {
@@ -152,6 +160,7 @@ pub fn popup(path: &str, at: NSPoint, mtm: MainThreadMarker) {
             add("Keep in Jiggle", sel!(keepInJiggle:));
         }
     }
+    add("Never Show in Jiggle", sel!(neverShow:));
     add("Show in Finder", sel!(showInFinder:));
     if running.is_some() {
         menu.addItem(&NSMenuItem::separatorItem(mtm));
