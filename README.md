@@ -17,6 +17,8 @@ Right-click the ring's center hub (or click the menu bar icon) for the Jiggle me
 only open ones, ring opacity, add apps, Settings…, and Quit. Apps you add stay in the ring even when they're
 closed and not in the Dock; right-click an app and choose Keep in Jiggle or Remove from Jiggle to do the same.
 Choose Never Show in Jiggle to hide an app from the ring for good (Settings… lists hidden apps to show again).
+Settings… can also hide the Dock completely, so Jiggle replaces it; the Dock comes back when you turn that
+off or quit Jiggle.
 
 - ~330 KB binary, AppKit only, no runtime besides the system frameworks
 - Idle cost: one event-tap callback per mouse move; nothing polls
@@ -31,7 +33,7 @@ Installs the latest signed release to `~/Applications/Jiggle.app` and starts it 
 (`~/Library/LaunchAgents/local.jiggle.plist`). Grant it **Accessibility** when asked.
 `./install.sh --source` builds from this checkout instead.
 
-Uninstall: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.jiggle.plist && rm -rf ~/Applications/Jiggle.app ~/Library/LaunchAgents/local.jiggle.plist`
+Uninstall (turn off Hide the Dock first if it's on): `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.jiggle.plist && rm -rf ~/Applications/Jiggle.app ~/Library/LaunchAgents/local.jiggle.plist`
 
 ## Updates
 
@@ -52,6 +54,7 @@ time the ring opens; no restart needed.
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `OpenAppsOnly` | bool | `false` | Show only running apps (plus apps you added) instead of all Dock apps |
+| `HideDock` | bool | `false` | Hide the macOS Dock (auto-hide with a very long delay). Your own auto-hide settings come back when you turn it off or quit Jiggle |
 | `RingOpacity` | int, 0–100 | `80` | Opacity of the ring's background, in percent |
 | `ExtraApps` | array of `.app` paths | empty | Apps always shown in the ring, even when closed and not in the Dock |
 | `HiddenApps` | array of `.app` paths | empty | Apps never shown in the ring, even when open or in the Dock |
@@ -63,6 +66,7 @@ time the ring opens; no restart needed.
 defaults read local.jiggle                                              # current settings
 defaults write local.jiggle OpenAppsOnly -bool true
 defaults write local.jiggle RingOpacity -int 60
+defaults write local.jiggle HideDock -bool true                        # hide the Dock (Jiggle replaces it)
 defaults write local.jiggle ExtraApps -array-add "/System/Applications/Notes.app"
 defaults write local.jiggle ExtraApps -array "/Applications/Safari.app" "/System/Applications/Notes.app"
 defaults write local.jiggle HiddenApps -array-add "/System/Applications/Messages.app"
