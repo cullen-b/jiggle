@@ -38,7 +38,13 @@ const PAD: f64 = 22.0;
 const DISMISS_DISTANCE: f64 = 450.0;
 // The center hub: a left click there closes the ring, a right click opens the Jiggle menu.
 const CENTER_DEAD: f64 = 24.0;
-const SELECTED_SCALE: f64 = 1.25;
+// Aiming: as the pointer moves from the hub toward the ring, the slice it points into widens and the icons
+// near it grow while the far side makes room, so the app you're heading for becomes a bigger target.
+const AIM_GROW: f64 = 1.1; // the aimed slice's share grows by up to this much (2.1x at the ring)
+const AIM_SPREAD: f64 = 0.9; // how far, in slots, the growth reaches toward neighbors
+const AIM_ICON_GROW: f64 = 0.45;
+const AIM_ICON_SHRINK: f64 = 0.12;
+const SELECTED_BONUS: f64 = 0.1;
 
 // CoreGraphics / CoreFoundation / HIServices FFI (just what the event tap needs).
 type TapCallback = unsafe extern "C" fn(*mut c_void, u32, *mut c_void, *mut c_void) -> *mut c_void;
@@ -123,9 +129,15 @@ struct Anim {
     running: bool,
     last: Instant,
     instant: bool,
+    // 0 = hidden, 1 = fully shown; `closing` fades it back out before the window is ordered out.
     appear: f64,
+    closing: bool,
     wedge_angle: f64,
+    wedge_half: f64,
     wedge_alpha: f64,
+    // Per slot: slice center and width (radians) and icon scale. Hit-testing uses these too.
+    centers: Vec<f64>,
+    widths: Vec<f64>,
     scales: Vec<f64>,
 }
 
@@ -138,6 +150,8 @@ struct Model {
     center: NSPoint,
     radius: f64,
     selected: Option<usize>,
+    // How far the pointer is from the hub toward the ring, 0..1, eased.
+    aim: f64,
     x: Axis,
     y: Axis,
     cooldown: Instant,
@@ -161,8 +175,12 @@ thread_local! {
             last: Instant::now(),
             instant: false,
             appear: 1.0,
+            closing: false,
             wedge_angle: 0.0,
+            wedge_half: 0.0,
             wedge_alpha: 0.0,
+            centers: Vec::new(),
+            widths: Vec::new(),
             scales: Vec::new(),
         },
         icons: HashMap::new(),
@@ -170,6 +188,7 @@ thread_local! {
         center: NSPoint::new(0.0, 0.0),
         radius: 0.0,
         selected: None,
+        aim: 0.0,
         x: Axis::default(),
         y: Axis::default(),
         cooldown: Instant::now(),
@@ -199,8 +218,14 @@ define_class!(
 
         #[unsafe(method(jiggleTick))]
         fn tick(&self) {
-            let (running, appear) = step_anim();
-            UI.with(|ui| ui.get().expect("ui").panel.setAlphaValue(appear));
+            let (running, appear, closed) = step_anim();
+            UI.with(|ui| {
+                let ui = ui.get().expect("ui");
+                ui.panel.setAlphaValue(appear);
+                if closed {
+                    ui.panel.orderOut(None);
+                }
+            });
             self.setNeedsDisplay(true);
             if running {
                 schedule_tick();
@@ -229,14 +254,45 @@ fn slot_angle(i: usize, n: usize) -> f64 {
     FRAC_PI_2 - i as f64 * TAU / n as f64
 }
 
-/// The slot whose pie slice contains the offset (vx, vy) from the center, if it's inside the ring.
-fn slice_at(vx: f64, vy: f64, n: usize, outer: f64) -> Option<usize> {
-    let d = vx.hypot(vy);
-    if n == 0 || d < CENTER_DEAD || d > outer {
-        return None;
+/// Slice centers, slice widths (radians) and icon scales for `n` slots when aiming at `sel` with the pointer
+/// `t` (0 at the hub, 1 at the ring) of the way out. The aimed slice keeps its center; the others make room.
+fn aim_layout(n: usize, sel: Option<usize>, t: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let even = || ((0..n).map(|i| slot_angle(i, n)).collect(), vec![TAU / n as f64; n], vec![1.0; n]);
+    let Some(s) = sel.filter(|&s| s < n) else { return even() };
+    // Falloff by distance in slots from the aimed one, going the short way round.
+    let g: Vec<f64> = (0..n)
+        .map(|i| {
+            let d = (i as isize - s as isize).rem_euclid(n as isize) as f64;
+            (-(d.min(n as f64 - d) / AIM_SPREAD).powi(2)).exp()
+        })
+        .collect();
+    let weights: Vec<f64> = g.iter().map(|g| 1.0 + AIM_GROW * t * g).collect();
+    let total: f64 = weights.iter().sum();
+    let widths: Vec<f64> = weights.iter().map(|w| TAU * w / total).collect();
+    let mut centers = vec![0.0; n];
+    centers[s] = slot_angle(s, n);
+    for k in 1..n {
+        let (i, prev) = ((s + k) % n, (s + k - 1) % n);
+        centers[i] = centers[prev] - (widths[prev] + widths[i]) / 2.0;
     }
-    let k = ((FRAC_PI_2 - vy.atan2(vx)) / (TAU / n as f64)).round() as i64;
-    Some(k.rem_euclid(n as i64) as usize)
+    let scales = (0..n)
+        .map(|i| {
+            let bonus = if i == s { SELECTED_BONUS } else { 0.0 };
+            1.0 + t * (AIM_ICON_GROW * g[i] - AIM_ICON_SHRINK * (1.0 - g[i])) + bonus
+        })
+        .collect();
+    (centers, widths, scales)
+}
+
+/// The slot whose slice (in the given layout) contains `angle`.
+fn slice_in(angle: f64, centers: &[f64], widths: &[f64]) -> Option<usize> {
+    let rel = |i: usize| wrap_angle(angle - centers[i]).abs() / (widths[i] / 2.0);
+    (0..centers.len()).min_by(|&a, &b| rel(a).total_cmp(&rel(b)))
+}
+
+fn smoothstep(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
 }
 
 /// Shortest signed angular distance, in -PI..PI.
@@ -263,18 +319,18 @@ fn draw(bounds: NSRect) {
         let hub = NSBezierPath::bezierPathWithOvalInRect(square(c, CENTER_DEAD));
         NSColor::colorWithWhite_alpha(1.0, 0.08).setFill();
         hub.fill();
-        if m.selected.is_none() {
-            // Three dots hint that the hub has a menu.
-            NSColor::colorWithWhite_alpha(1.0, 0.55).setFill();
+        // Three dots hint that the hub has a menu; they make way for the app name.
+        let dots = 0.55 * (1.0 - a.wedge_alpha);
+        if dots > 0.01 {
+            NSColor::colorWithWhite_alpha(1.0, dots).setFill();
             for dx in [-7.0, 0.0, 7.0] {
                 NSBezierPath::bezierPathWithOvalInRect(square(NSPoint::new(c.x + dx, c.y), 1.8)).fill();
             }
         }
 
-        // The selected app's pie slice.
+        // The aimed app's slice of the pie.
         if a.wedge_alpha > 0.01 {
-            let half = 180.0 / n as f64;
-            let mid = a.wedge_angle.to_degrees();
+            let (mid, half) = (a.wedge_angle.to_degrees(), a.wedge_half.to_degrees());
             let wedge = NSBezierPath::bezierPath();
             wedge.moveToPoint(c);
             wedge.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle(c, outer - 1.0, mid - half, mid + half);
@@ -286,7 +342,7 @@ fn draw(bounds: NSRect) {
         // Icons start a little inward and ease out to the ring as it appears.
         let r = m.radius * (0.82 + 0.18 * a.appear);
         for (i, app) in m.apps.iter().enumerate() {
-            let ang = slot_angle(i, n);
+            let ang = a.centers.get(i).copied().unwrap_or_else(|| slot_angle(i, n));
             let p = NSPoint::new(c.x + r * ang.cos(), c.y + r * ang.sin());
             let size = ICON * a.scales.get(i).copied().unwrap_or(1.0);
             app.icon.drawInRect(square(p, size / 2.0));
@@ -297,70 +353,87 @@ fn draw(bounds: NSRect) {
             }
         }
 
-        if let Some(i) = m.selected {
-            let font = NSFont::systemFontOfSize(14.0);
-            let color = NSColor::whiteColor();
+        // The aimed app's name on a soft pill, readable at any ring opacity.
+        if let Some(i) = m.selected.filter(|_| a.wedge_alpha > 0.05) {
+            let font = NSFont::systemFontOfSize_weight(13.0, unsafe { objc2_app_kit::NSFontWeightMedium });
+            let color = NSColor::colorWithWhite_alpha(1.0, a.wedge_alpha);
             let keys = unsafe { [NSFontAttributeName, NSForegroundColorAttributeName] };
             let vals: [&AnyObject; 2] = [&font, &color];
             let attrs = NSDictionary::from_slices(&keys, &vals);
             let name = &m.apps[i].name;
             let sz = unsafe { name.sizeWithAttributes(Some(&attrs)) };
+            let (pw, ph) = (sz.width + 20.0, sz.height + 8.0);
+            let pill = NSRect::new(NSPoint::new(c.x - pw / 2.0, c.y - ph / 2.0), NSSize::new(pw, ph));
+            NSColor::colorWithWhite_alpha(0.0, 0.45 * a.wedge_alpha).setFill();
+            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(pill, ph / 2.0, ph / 2.0).fill();
             let at = NSPoint::new(c.x - sz.width / 2.0, c.y - sz.height / 2.0);
             unsafe { name.drawAtPoint_withAttributes(at, Some(&attrs)) };
         }
     });
 }
 
-/// Advances the animation one frame. Returns whether it is still moving, and the window alpha.
-fn step_anim() -> (bool, f64) {
+/// Advances the animation one frame. Returns whether it is still moving, the window alpha, and whether
+/// a fade-out just finished (so the window can be ordered out).
+fn step_anim() -> (bool, f64, bool) {
     MODEL.with(|m| {
         let mut m = m.borrow_mut();
         let m = &mut *m;
         let n = m.apps.len();
         let a = &mut m.anim;
-        if !m.visible {
+        if !m.visible && !a.closing {
             a.running = false;
-            return (false, 1.0);
+            return (false, a.appear, false);
         }
         let now = Instant::now();
         let dt = (now - a.last).as_secs_f64().min(0.05);
         a.last = now;
         let ease = |rate: f64| if a.instant { 1.0 } else { 1.0 - (-dt * rate).exp() };
-        let (k, k_appear) = (ease(20.0), ease(14.0));
+        // Layout follows the pointer briskly; the window fades in a touch slower and out quicker.
+        let k = ease(22.0);
+        let k_appear = if a.closing { ease(26.0) } else { ease(16.0) };
+        let appear_target = if a.closing { 0.0 } else { 1.0 };
+        a.appear += (appear_target - a.appear) * k_appear;
+        let mut settled = (appear_target - a.appear).abs() < 0.003;
 
-        a.appear += (1.0 - a.appear) * k_appear;
-        match m.selected {
-            Some(i) => {
-                let target = slot_angle(i, n);
-                if a.wedge_alpha < 0.02 {
-                    a.wedge_angle = target;
-                } else {
-                    a.wedge_angle += wrap_angle(target - a.wedge_angle) * k;
+        // While fading out, the layout holds still.
+        if !a.closing {
+            let (centers, widths, scales) = aim_layout(n, m.selected, m.aim);
+            for i in 0..n.min(a.centers.len()) {
+                a.centers[i] += wrap_angle(centers[i] - a.centers[i]) * k;
+                a.widths[i] += (widths[i] - a.widths[i]) * k;
+                a.scales[i] += (scales[i] - a.scales[i]) * k;
+                settled &= wrap_angle(centers[i] - a.centers[i]).abs() < 0.0005
+                    && (widths[i] - a.widths[i]).abs() < 0.0005
+                    && (scales[i] - a.scales[i]).abs() < 0.001;
+            }
+            match m.selected.filter(|&s| s < a.centers.len()) {
+                Some(s) => {
+                    let (angle, half) = (a.centers[s], a.widths[s] / 2.0);
+                    if a.wedge_alpha < 0.02 {
+                        (a.wedge_angle, a.wedge_half) = (angle, half);
+                    } else {
+                        a.wedge_angle += wrap_angle(angle - a.wedge_angle) * k;
+                        a.wedge_half += (half - a.wedge_half) * k;
+                    }
+                    a.wedge_alpha += (1.0 - a.wedge_alpha) * k;
+                    settled &= wrap_angle(angle - a.wedge_angle).abs() < 0.0005
+                        && (half - a.wedge_half).abs() < 0.0005
+                        && 1.0 - a.wedge_alpha < 0.003;
                 }
-                a.wedge_alpha += (1.0 - a.wedge_alpha) * k;
+                None => {
+                    a.wedge_alpha -= a.wedge_alpha * k;
+                    settled &= a.wedge_alpha < 0.003;
+                }
             }
-            None => a.wedge_alpha -= a.wedge_alpha * k,
         }
-        let mut settled = 1.0 - a.appear < 0.002;
-        let wedge_target = if m.selected.is_some() { 1.0 } else { 0.0 };
-        settled &= (wedge_target - a.wedge_alpha).abs() < 0.002;
-        if let Some(i) = m.selected {
-            settled &= wrap_angle(slot_angle(i, n) - a.wedge_angle).abs() < 0.001;
+
+        if !settled {
+            return (true, a.appear, false);
         }
-        for (j, s) in a.scales.iter_mut().enumerate() {
-            let t = if m.selected == Some(j) { SELECTED_SCALE } else { 1.0 };
-            *s += (t - *s) * k;
-            settled &= (t - *s).abs() < 0.002;
-        }
-        if settled {
-            a.appear = 1.0;
-            a.wedge_alpha = wedge_target;
-            for (j, s) in a.scales.iter_mut().enumerate() {
-                *s = if m.selected == Some(j) { SELECTED_SCALE } else { 1.0 };
-            }
-            a.running = false;
-        }
-        (!settled, a.appear)
+        a.running = false;
+        a.appear = appear_target;
+        let closed = std::mem::take(&mut a.closing);
+        (false, a.appear, closed)
     })
 }
 
@@ -474,11 +547,14 @@ fn show(p: NSPoint, mtm: MainThreadMarker) {
         }
         m.center = c;
         m.selected = None;
+        m.aim = 0.0;
         m.visible = true;
-        m.anim.instant = NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion();
-        m.anim.appear = 0.0;
-        m.anim.wedge_alpha = 0.0;
-        m.anim.scales = vec![1.0; m.apps.len()];
+        let n = m.apps.len();
+        let (centers, widths, scales) = aim_layout(n, None, 0.0);
+        let a = &mut m.anim;
+        a.instant = NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion();
+        (a.appear, a.closing, a.wedge_alpha) = (0.0, false, 0.0);
+        (a.centers, a.widths, a.scales) = (centers, widths, scales);
         Some(square(c, outer))
     });
     let Some(frame) = frame else { return };
@@ -492,16 +568,21 @@ fn show(p: NSPoint, mtm: MainThreadMarker) {
     start_anim();
 }
 
+/// Stops taking input at once and fades the ring out (the tick orders the window out when done).
 fn hide() {
-    MODEL.with(|m| {
+    let fade = MODEL.with(|m| {
         let mut m = m.borrow_mut();
+        let was_visible = m.visible;
         m.visible = false;
-        m.selected = None;
         m.x = Axis::default();
         m.y = Axis::default();
         m.cooldown = Instant::now() + COOLDOWN;
+        m.anim.closing = was_visible;
+        was_visible
     });
-    UI.with(|ui| ui.get().expect("ui").panel.orderOut(None));
+    if fade {
+        start_anim();
+    }
 }
 
 enum Act {
@@ -522,9 +603,17 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
             if dist > m.radius + DISMISS_DISTANCE {
                 return Act::Hide;
             }
-            let sel = slice_at(vx, vy, m.apps.len(), outer_radius(m.radius));
-            if sel != m.selected {
+            // Hit-test against the layout as drawn, so what you see is what you click.
+            let n = m.apps.len();
+            let sel = if n == 0 || dist < CENTER_DEAD || dist > outer_radius(m.radius) {
+                None
+            } else {
+                slice_in(vy.atan2(vx), &m.anim.centers, &m.anim.widths)
+            };
+            let aim = if sel.is_some() { smoothstep((dist - CENTER_DEAD) / (m.radius - CENTER_DEAD)) } else { 0.0 };
+            if sel != m.selected || (aim - m.aim).abs() > 0.002 {
                 m.selected = sel;
+                m.aim = aim;
                 return Act::Animate;
             }
             return Act::Nothing;
@@ -810,23 +899,40 @@ mod tests {
     }
 
     #[test]
-    fn slices_cover_the_whole_pie_inside_the_ring() {
-        // Four apps: top, right, bottom, left. Just past the center already picks a slice.
-        assert_eq!(slice_at(0.0, 30.0, 4, 150.0), Some(0));
-        assert_eq!(slice_at(30.0, 0.0, 4, 150.0), Some(1));
-        assert_eq!(slice_at(0.0, -140.0, 4, 150.0), Some(2));
-        assert_eq!(slice_at(-100.0, 10.0, 4, 150.0), Some(3));
-        // Slice edges sit halfway between icons.
-        assert_eq!(slice_at(30.0, 31.0, 4, 150.0), Some(0));
-        assert_eq!(slice_at(31.0, 30.0, 4, 150.0), Some(1));
+    fn even_layout_slices_split_halfway_between_icons() {
+        let (c, w, s) = aim_layout(4, None, 0.0);
+        let at = |deg: f64| slice_in(deg.to_radians(), &c, &w);
+        assert_eq!(at(90.0), Some(0)); // top
+        assert_eq!(at(0.0), Some(1)); // right
+        assert_eq!(at(-90.0), Some(2)); // bottom
+        assert_eq!(at(180.0), Some(3)); // left
+        assert_eq!(at(46.0), Some(0));
+        assert_eq!(at(44.0), Some(1));
+        assert!(s.iter().all(|&x| x == 1.0));
     }
 
     #[test]
-    fn center_and_outside_select_nothing() {
-        assert_eq!(slice_at(3.0, 4.0, 4, 150.0), None);
-        assert_eq!(slice_at(0.0, 20.0, 4, 150.0), None);
-        assert_eq!(slice_at(0.0, 151.0, 4, 150.0), None);
-        assert_eq!(slice_at(0.0, 50.0, 0, 150.0), None);
+    fn aiming_widens_the_target_and_keeps_it_in_place() {
+        let n = 9;
+        let (c, w, s) = aim_layout(n, Some(2), 1.0);
+        let step = TAU / n as f64;
+        assert!((w.iter().sum::<f64>() - TAU).abs() < 1e-9);
+        assert!(w[2] > 1.6 * step, "aimed slice should be much wider: {}", w[2] / step);
+        assert!(w[6] < step, "far side should make room");
+        assert!((c[2] - slot_angle(2, n)).abs() < 1e-9);
+        assert!(s[2] > s[1] && s[1] > s[6] && s[6] < 1.0);
+        // A point just past where the old boundary was still lands on the aimed app.
+        let boundary = slot_angle(2, n) - step / 2.0;
+        assert_eq!(slice_in(boundary - 0.15, &c, &w), Some(2));
+        // Neighbors are symmetric around the aimed slot.
+        assert!((w[1] - w[3]).abs() < 1e-9 && (wrap_angle(c[1] - c[2]) + wrap_angle(c[3] - c[2])).abs() < 1e-9);
+    }
+
+    #[test]
+    fn aim_at_hub_is_even() {
+        let (_, w, s) = aim_layout(6, Some(1), 0.0);
+        assert!(w.iter().all(|&x| (x - TAU / 6.0).abs() < 1e-9));
+        assert!((s[1] - 1.0 - SELECTED_BONUS).abs() < 1e-9 && (s[0] - 1.0).abs() < 1e-9);
     }
 
     #[test]

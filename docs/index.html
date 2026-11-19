@@ -68,11 +68,22 @@
     transition: transform .35s var(--spring), opacity .2s;
   }
   body.open #disc { transform: scale(1); opacity: 1; }
+  /* The aimed slice: centered on --wc, half as wide as --wh (clockwise from 12 o'clock). */
+  @property --wc { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+  @property --wh { syntax: '<angle>'; inherits: false; initial-value: 20deg; }
   #wedge {
     position: absolute; inset: 0; border-radius: 50%; opacity: 0;
-    transition: transform .22s cubic-bezier(.2, .8, .2, 1), opacity .2s;
+    background: conic-gradient(from calc(var(--wc) - var(--wh)), rgba(255, 255, 255, .2) 0deg calc(var(--wh) * 2), transparent 0deg);
+    transition: --wc .16s ease-out, --wh .16s ease-out, opacity .2s;
   }
   body.picking #wedge { opacity: 1; }
+  #name {
+    position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); z-index: 1;
+    padding: 5px 11px; border-radius: 999px; white-space: nowrap; pointer-events: none;
+    font: 500 13px/1.2 system-ui, -apple-system, sans-serif; color: #fff; background: rgba(0, 0, 0, .45);
+    opacity: 0; transition: opacity .15s;
+  }
+  body.picking #name { opacity: 1; }
   .tile {
     position: absolute; left: 0; top: 0;
     width: var(--tile); height: var(--tile); margin: calc(var(--tile) / -2) 0 0 calc(var(--tile) / -2);
@@ -83,8 +94,10 @@
     transition-delay: calc(var(--i) * 22ms);
   }
   .tile svg { display: block; width: 100%; height: 100%; }
-  body.open .tile { pointer-events: auto; opacity: 1; transform: translate(var(--x), var(--y)) scale(1); }
-  body.open .tile.sel { transform: translate(var(--x), var(--y)) scale(1.28); transition-delay: 0s; transition-duration: .3s; z-index: 1; }
+  body.open .tile { pointer-events: auto; opacity: 1; transform: translate(var(--x), var(--y)) scale(var(--s, 1)); }
+  /* Once the pointer is aiming, tiles follow it briskly instead of springing in one by one. */
+  body.aiming .tile { transition: transform .16s ease-out, opacity .2s, filter .2s; transition-delay: 0s; }
+  body.open .tile.sel { z-index: 1; }
   body.open.picking .tile:not(.sel) { filter: brightness(.94); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .tile:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
@@ -193,7 +206,7 @@
   </svg>
 </div>
 
-<div id="ring"><div id="disc"><div id="wedge"></div></div></div>
+<div id="ring"><div id="disc"><div id="wedge"></div></div><div id="name"></div></div>
 <div id="app" role="status"></div>
 
 <a class="mark" translate="no" href="https://github.com/cullen-b/jiggle" aria-label="jiggle on GitHub"><span>j</span><span>i</span><span>g</span><span>g</span><span>l</span><span>e</span></a>
@@ -286,7 +299,7 @@
     b.setAttribute('aria-label', a.name);
     b.tabIndex = -1;
     b.innerHTML = icon(i) + (a.run ? '<span class="run"></span>' : '');
-    b.addEventListener('focus', () => select(i));
+    b.addEventListener('focus', () => { if (!open) return; body.classList.add('aiming'); select(i); applyLayout(i, 0.6); });
     b.addEventListener('click', (e) => { e.stopPropagation(); launch(i); });
     ring.appendChild(b);
     return b;
@@ -294,7 +307,40 @@
 
   let open = false, sel = -1, cx = 0, cy = 0, R = 120, outerR = 170, everOpened = false;
   const wedge = document.getElementById('wedge');
-  let wedgeDeg = 0;
+  const nameEl = document.getElementById('name');
+
+  // Aiming, same as the Mac app: as the pointer moves from the hub toward the ring, the slice it points
+  // into widens and nearby tiles grow while the far side makes room. Angles are degrees clockwise from 12.
+  const AIM_GROW = 1.1, AIM_SPREAD = 0.9, ICON_GROW = 0.45, ICON_SHRINK = 0.12, SEL_BONUS = 0.1, HUB = 24;
+  let centers = [], widths = [], wedgeC = 0;
+  const wrapDeg = (d) => ((d % 360) + 540) % 360 - 180;
+  function aimLayout(s, t) {
+    const n = APPS.length, step = 360 / n;
+    if (s < 0) return { c: APPS.map((_, i) => i * step), w: APPS.map(() => step), sc: APPS.map(() => 1) };
+    const g = APPS.map((_, i) => { let d = ((i - s) % n + n) % n; d = Math.min(d, n - d); return Math.exp(-((d / AIM_SPREAD) ** 2)); });
+    const wt = g.map((x) => 1 + AIM_GROW * t * x);
+    const total = wt.reduce((a, b) => a + b, 0);
+    const w = wt.map((x) => 360 * x / total), c = new Array(n);
+    c[s] = s * step;
+    for (let k = 1; k < n; k++) { const i = (s + k) % n, p = (s + k - 1) % n; c[i] = c[p] + (w[p] + w[i]) / 2; }
+    const sc = g.map((x, i) => 1 + t * (ICON_GROW * x - ICON_SHRINK * (1 - x)) + (i === s ? SEL_BONUS : 0));
+    return { c, w, sc };
+  }
+  function applyLayout(s, t) {
+    const L = aimLayout(s, t);
+    centers = L.c; widths = L.w;
+    tiles.forEach((tile, i) => {
+      const a = L.c[i] * Math.PI / 180;
+      tile.style.setProperty('--x', `${R * Math.sin(a)}px`);
+      tile.style.setProperty('--y', `${-R * Math.cos(a)}px`);
+      tile.style.setProperty('--s', L.sc[i].toFixed(3));
+    });
+    if (s >= 0) {
+      wedgeC += wrapDeg(L.c[s] - wedgeC);
+      wedge.style.setProperty('--wc', `${wedgeC}deg`);
+      wedge.style.setProperty('--wh', `${L.w[s] / 2}deg`);
+    }
+  }
   let px = innerWidth / 2, py = innerHeight / 2, lastX = null, lastY = null;
   let fx = px, fy = py, energy = 0, lastTap = 0;
 
@@ -303,14 +349,8 @@
     const tile = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tile'));
     const outer = R + tile / 2 + 20;
     disc.style.cssText = `width:${outer * 2}px;height:${outer * 2}px;left:${-outer}px;top:${-outer}px`;
-    tiles.forEach((t, i) => {
-      const a = Math.PI / 2 - i * 2 * Math.PI / APPS.length;
-      t.style.setProperty('--x', `${R * Math.cos(a)}px`);
-      t.style.setProperty('--y', `${-R * Math.sin(a)}px`);
-    });
     outerR = outer;
-    const half = 180 / APPS.length;
-    wedge.style.background = `conic-gradient(from ${-half}deg, rgba(255,255,255,.2) 0deg ${2 * half}deg, transparent ${2 * half}deg)`;
+    applyLayout(-1, 0);
     return outer;
   }
 
@@ -332,7 +372,7 @@
 
   function hide() {
     open = false;
-    body.classList.remove('open', 'picking');
+    body.classList.remove('open', 'picking', 'aiming');
     tiles.forEach(t => t.tabIndex = -1);
     select(-1);
     ax = axis(); ay = axis();
@@ -345,22 +385,36 @@
     sel = i;
     if (sel >= 0) {
       tiles[sel].classList.add('sel');
-      // Turn the pie slice the short way round; jump straight there when nothing was selected.
-      const target = sel * 360 / APPS.length;
-      wedgeDeg += ((target - wedgeDeg) % 360 + 540) % 360 - 180;
-      if (from < 0) wedge.style.transition = 'none';
-      wedge.style.transform = `rotate(${wedgeDeg}deg)`;
-      if (from < 0) { void wedge.offsetWidth; wedge.style.transition = ''; }
+      nameEl.textContent = APPS[sel].name;
+      // Appearing from nothing, the slice starts where it is rather than sweeping in from the last one.
+      if (from < 0) {
+        wedge.style.transition = 'none';
+        applyLayout(sel, 0);
+        void wedge.offsetWidth;
+        wedge.style.transition = '';
+      }
     }
     body.classList.toggle('picking', sel >= 0);
   }
 
+  // Which tile's slice (as currently laid out) the point is in, and how far out it is (0 at the hub, 1 at the ring).
   function pick(x, y) {
-    const vx = x - cx, vy = cy - y, d = Math.hypot(vx, vy);
-    if (d < 14 || d > outerR) return -1;
-    const step = 2 * Math.PI / APPS.length;
-    const k = Math.round((Math.PI / 2 - Math.atan2(vy, vx)) / step);
-    return ((k % APPS.length) + APPS.length) % APPS.length;
+    const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy);
+    if (d < HUB || d > outerR) return { i: -1, t: 0 };
+    const angle = Math.atan2(dx, -dy) * 180 / Math.PI;
+    let best = -1, bestRel = Infinity;
+    centers.forEach((c, i) => {
+      const rel = Math.abs(wrapDeg(angle - c)) / (widths[i] / 2);
+      if (rel < bestRel) { bestRel = rel; best = i; }
+    });
+    const u = Math.min(1, Math.max(0, (d - HUB) / (R - HUB)));
+    return { i: best, t: u * u * (3 - 2 * u) };
+  }
+  function aimAt(x, y) {
+    const p = pick(x, y);
+    body.classList.add('aiming');
+    select(p.i);
+    applyLayout(p.i, p.t);
   }
 
   // Opening an app: a small window pops out of the tile, then tucks back in.
@@ -402,7 +456,7 @@
   addEventListener('pointermove', (e) => {
     px = e.clientX; py = e.clientY;
     if (appOpen) { lastX = lastY = null; return; }
-    if (open) { select(pick(px, py)); return; }
+    if (open) { aimAt(px, py); return; }
     if (lastX !== null) {
       const now = performance.now();
       const dx = px - lastX, dy = py - lastY;
@@ -426,7 +480,7 @@
       return;
     }
     if (!open || e.target.closest('.tile, a, .ask')) return;
-    const i = pick(e.clientX, e.clientY);
+    const i = pick(e.clientX, e.clientY).i;
     if (i >= 0 && e.pointerType === 'mouse') launch(i); else hide();
   });
   addEventListener('contextmenu', (e) => { if (open) { e.preventDefault(); hide(); } });
