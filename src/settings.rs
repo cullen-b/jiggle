@@ -31,10 +31,12 @@ const KEY_EXTRA_APPS: &str = "ExtraApps";
 const KEY_SHORTCUT: &str = "Shortcut";
 const KEY_HIDDEN_APPS: &str = "HiddenApps";
 const KEY_APP_ORDER: &str = "AppOrder";
-const KEY_SHAKE: &str = "ShakeSensitivity";
+const KEY_SHAKE: &str = "ShakeLevel";
+// The old 0–5 scale, read only when ShakeLevel is unset; its 4 and 5 became 5 and 6.
+const KEY_SHAKE_OLD: &str = "ShakeSensitivity";
 const KEY_HIDE_DOCK: &str = "HideDock";
 pub const DEFAULT_SHAKE: isize = 3;
-pub const MAX_SHAKE: isize = 5;
+pub const MAX_SHAKE: isize = 6;
 const DEFAULT_OPACITY: isize = 80;
 pub const MIN_OPACITY: isize = 0;
 const OPACITIES: [isize; 6] = [0, 20, 40, 60, 80, 100];
@@ -101,13 +103,20 @@ fn set_in_list(key: &str, path: &str, on: bool) {
     write_list(key, &apps);
 }
 
-/// How easily a mouse shake opens the ring: 0 = off, 1 (firm) to 5 (light); 3 when unset.
+/// How easily a mouse shake opens the ring: 0 = off, 1 (firm) to 6 (light); 3 when unset.
 pub fn shake_sensitivity() -> isize {
     let key = NSString::from_str(KEY_SHAKE);
-    if defaults().objectForKey(&key).is_none() {
+    if defaults().objectForKey(&key).is_some() {
+        return defaults().integerForKey(&key).clamp(0, MAX_SHAKE);
+    }
+    let old = NSString::from_str(KEY_SHAKE_OLD);
+    if defaults().objectForKey(&old).is_none() {
         return DEFAULT_SHAKE;
     }
-    defaults().integerForKey(&key).clamp(0, MAX_SHAKE)
+    match defaults().integerForKey(&old) {
+        l if l >= 4 => (l + 1).min(MAX_SHAKE),
+        l => l.max(0),
+    }
 }
 
 pub fn set_shake_sensitivity(level: isize) {
