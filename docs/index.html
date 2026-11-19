@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jiggle</title>
+<meta name="description" content="Shake your mouse. Your Dock comes to you. A tiny Mac app.">
+<meta name="theme-color" content="#2b3be8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232b3be8'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --field: #2b3be8;
+    --ink: #12184a;
+    --paper: #f7f7ff;
+    --dot: rgba(255, 255, 255, 0.2);
+    --spring: cubic-bezier(.34, 1.56, .64, 1);
+    --tile: 64px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: var(--field);
+    color: var(--paper);
+    font-family: system-ui, -apple-system, sans-serif;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* Follower: a ring that trails the pointer and fills up as you shake. */
+  #follower {
+    position: fixed; left: 0; top: 0; width: 56px; height: 56px;
+    margin: -28px 0 0 -28px; pointer-events: none; z-index: 3;
+    transition: opacity .2s;
+  }
+  #follower svg { width: 100%; height: 100%; overflow: visible; }
+  #follower .track { stroke: rgba(255, 255, 255, .35); }
+  #follower .meter { stroke: var(--paper); transition: stroke-dashoffset .12s ease-out; }
+  #follower .mouse { opacity: 0; transition: opacity .4s; }
+  #follower.hint .mouse { opacity: 1; animation: shake 1.6s ease-in-out infinite; transform-origin: 28px 28px; }
+  body.open #follower { opacity: 0; }
+
+  @keyframes shake {
+    0%, 45%, 100% { transform: translateX(0) rotate(0); }
+    50% { transform: translateX(-7px) rotate(-8deg); }
+    60% { transform: translateX(7px) rotate(8deg); }
+    70% { transform: translateX(-7px) rotate(-8deg); }
+    80% { transform: translateX(7px) rotate(8deg); }
+    90% { transform: translateX(0) rotate(0); }
+  }
+
+  /* The ring of apps. */
+  #ring { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2; pointer-events: none; }
+  #disc {
+    position: absolute; border-radius: 50%;
+    background: rgba(255, 255, 255, .16);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    backdrop-filter: blur(14px) saturate(1.4);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35), 0 30px 80px -20px rgba(8, 12, 60, .55);
+    transform: scale(.2); opacity: 0;
+    transition: transform .35s var(--spring), opacity .2s;
+  }
+  body.open #disc { transform: scale(1); opacity: 1; }
+  .tile {
+    position: absolute; left: 0; top: 0;
+    width: var(--tile); height: var(--tile); margin: calc(var(--tile) / -2) 0 0 calc(var(--tile) / -2);
+    border: 0; border-radius: 30%; padding: 0; cursor: pointer;
+    display: grid; place-items: center;
+    background: var(--c); color: var(--ink);
+    box-shadow: 0 10px 22px -8px rgba(8, 12, 60, .6), inset 0 -4px 0 rgba(0, 0, 0, .12);
+    transform: translate(0, 0) scale(.1); opacity: 0;
+    transition: transform .45s var(--spring), opacity .2s, filter .2s;
+    transition-delay: calc(var(--i) * 22ms);
+  }
+  .tile svg { width: 46%; height: 46%; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  body.open .tile { pointer-events: auto; opacity: 1; transform: translate(var(--x), var(--y)) scale(1); }
+  body.open .tile.sel { transform: translate(var(--x), var(--y)) scale(1.28); transition-delay: 0s; transition-duration: .3s; z-index: 1; }
+  body.open.picking .tile:not(.sel) { filter: brightness(.94); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .tile:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
+  .tile .run {
+    position: absolute; bottom: -10px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px;
+    border-radius: 50%; background: var(--paper); opacity: .85;
+  }
+
+  /* An opened "app": the tile grows to fill the screen. */
+  #app {
+    position: fixed; z-index: 5; display: none; place-items: center;
+    background: var(--c); color: var(--ink); cursor: pointer;
+    transition: left .5s var(--spring), top .5s var(--spring), width .5s var(--spring), height .5s var(--spring), border-radius .5s ease;
+  }
+  #app.show { display: grid; }
+  #app svg {
+    width: min(38vmin, 300px); height: min(38vmin, 300px);
+    fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+    opacity: 0; transform: scale(.6) rotate(-10deg);
+    transition: opacity .3s .15s, transform .6s .15s var(--spring);
+  }
+  #app.full svg { opacity: 1; transform: none; animation: bob 2.4s 0.8s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-10px) rotate(3deg); } }
+
+  /* Corners: the only words on the page. */
+  .mark {
+    position: fixed; left: calc(24px + env(safe-area-inset-left)); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 4;
+    font-family: "Bagel Fat One", system-ui, sans-serif; font-size: clamp(40px, 7vw, 84px); line-height: 1;
+    color: var(--paper); text-decoration: none; display: flex; pointer-events: auto;
+  }
+  .mark span { display: inline-block; transform: rotate(var(--r, 0deg)) translateY(var(--dy, 0px)); }
+  .gh {
+    position: fixed; right: calc(22px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 4; width: 44px; height: 44px;
+    display: grid; place-items: center; border-radius: 50%; color: var(--paper);
+    background: rgba(255, 255, 255, .12); transition: background .2s, transform .2s var(--spring);
+  }
+  .gh:hover { background: rgba(255, 255, 255, .24); transform: scale(1.08); }
+  .gh svg { width: 24px; height: 24px; fill: currentColor; }
+  .mark:focus-visible, .gh:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; border-radius: 12px; }
+
+  @media (max-width: 600px) { :root { --tile: 52px; } .mark { left: calc(16px + env(safe-area-inset-left)); } .gh { right: calc(16px + env(safe-area-inset-right)); } }
+  @media (hover: none) { #follower { display: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0s !important; transition-delay: 0s !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<h1 class="sr">jiggle: shake your mouse and your Dock apps appear around the pointer. Press Space to try it.</h1>
+<canvas id="dots" aria-hidden="true"></canvas>
+
+<div id="follower" aria-hidden="true">
+  <svg viewBox="0 0 56 56">
+    <circle class="track" cx="28" cy="28" r="22" fill="none" stroke-width="2"/>
+    <circle class="meter" cx="28" cy="28" r="22" fill="none" stroke-width="4" stroke-linecap="round"
+            transform="rotate(-90 28 28)" stroke-dasharray="138.2" stroke-dashoffset="138.2"/>
+    <g class="mouse" fill="none" stroke="#f7f7ff" stroke-width="2">
+      <rect x="22" y="18" width="12" height="20" rx="6"/><path d="M28 22v4"/>
+    </g>
+  </svg>
+</div>
+
+<div id="ring"><div id="disc"></div></div>
+<div id="app" role="dialog" aria-modal="true" aria-label="App"></div>
+
+<a class="mark" translate="no" href="https://github.com/cullen-b/jiggle" aria-label="jiggle on GitHub"><span>j</span><span>i</span><span>g</span><span>g</span><span>l</span><span>e</span></a>
+<a class="gh" href="https://github.com/cullen-b/jiggle" aria-label="Source code on GitHub">
+  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+</a>
+
+<script>
+(() => {
+  const APPS = [
+    { name: 'Files',    c: '#ffd23f', g: '<path d="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>' },
+    { name: 'Music',    c: '#ff5d8f', g: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>', run: 1 },
+    { name: 'Camera',   c: '#3ddc97', g: '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/>' },
+    { name: 'Web',      c: '#4cc9ff', g: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><ellipse cx="12" cy="12" rx="4" ry="9"/>', run: 1 },
+    { name: 'Messages', c: '#f7f7ff', g: '<path d="M4 5h16v11H10l-6 4z"/>' },
+    { name: 'Terminal', c: '#ff8a3d', g: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>', run: 1 },
+    { name: 'Weather',  c: '#b79cff', g: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>' },
+    { name: 'Calendar', c: '#ff4d4d', g: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>' },
+  ];
+  const svg = (g) => `<svg viewBox="0 0 24 24" aria-hidden="true">${g}</svg>`;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const body = document.body;
+  const ring = document.getElementById('ring');
+  const disc = document.getElementById('disc');
+  const follower = document.getElementById('follower');
+  const meter = follower.querySelector('.meter');
+  const appEl = document.getElementById('app');
+  const letters = [...document.querySelectorAll('.mark span')];
+
+  // Shake detection, same rule as the Mac app: 4 reversals of 40px+ legs within 600ms.
+  const REVERSALS = 4, MIN_LEG = 40, WINDOW = 600, CIRC = 138.2;
+  const axis = () => ({ dir: 0, leg: 0, flips: [] });
+  let ax = axis(), ay = axis();
+  function feed(a, d, now) {
+    const dir = Math.sign(d);
+    if (dir === a.dir) a.leg += Math.abs(d);
+    else if (dir && Math.abs(d) >= 3) {
+      if (a.leg >= MIN_LEG) a.flips.push(now);
+      a.dir = dir; a.leg = Math.abs(d);
+    }
+    while (a.flips.length && now - a.flips[0] > WINDOW) a.flips.shift();
+    return a.flips.length;
+  }
+
+  // Tiles.
+  const tiles = APPS.map((a, i) => {
+    const b = document.createElement('button');
+    b.className = 'tile';
+    b.style.setProperty('--c', a.c);
+    b.style.setProperty('--i', i);
+    b.setAttribute('aria-label', a.name);
+    b.tabIndex = -1;
+    b.innerHTML = svg(a.g) + (a.run ? '<span class="run"></span>' : '');
+    b.addEventListener('focus', () => select(i));
+    b.addEventListener('click', (e) => { e.stopPropagation(); launch(i); });
+    ring.appendChild(b);
+    return b;
+  });
+
+  let open = false, sel = -1, cx = 0, cy = 0, R = 120, everOpened = false;
+  let px = innerWidth / 2, py = innerHeight / 2, lastX = null, lastY = null;
+  let fx = px, fy = py, energy = 0, lastTap = 0;
+
+  function layout() {
+    R = Math.min(130, Math.max(92, innerWidth * 0.28));
+    const tile = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tile'));
+    const outer = R + tile / 2 + 20;
+    disc.style.cssText = `width:${outer * 2}px;height:${outer * 2}px;left:${-outer}px;top:${-outer}px`;
+    tiles.forEach((t, i) => {
+      const a = Math.PI / 2 - i * 2 * Math.PI / APPS.length;
+      t.style.setProperty('--x', `${R * Math.cos(a)}px`);
+      t.style.setProperty('--y', `${-R * Math.sin(a)}px`);
+    });
+    return outer;
+  }
+
+  function show(x, y) {
+    const outer = layout();
+    const m = 8;
+    cx = Math.min(Math.max(x, outer + m), innerWidth - outer - m);
+    cy = Math.min(Math.max(y, outer + m), innerHeight - outer - m);
+    if (innerWidth < outer * 2 + m * 2) cx = innerWidth / 2;
+    if (innerHeight < outer * 2 + m * 2) cy = innerHeight / 2;
+    ring.style.transform = `translate(${cx}px, ${cy}px)`;
+    open = true; everOpened = true;
+    follower.classList.remove('hint');
+    body.classList.add('open');
+    tiles.forEach(t => t.tabIndex = 0);
+    select(-1);
+    ax = axis(); ay = axis();
+  }
+
+  function hide() {
+    open = false;
+    body.classList.remove('open', 'picking');
+    tiles.forEach(t => t.tabIndex = -1);
+    select(-1);
+    ax = axis(); ay = axis();
+  }
+
+  function select(i) {
+    if (i === sel) return;
+    if (sel >= 0) tiles[sel].classList.remove('sel');
+    sel = i;
+    if (sel >= 0) tiles[sel].classList.add('sel');
+    body.classList.toggle('picking', sel >= 0);
+  }
+
+  function pick(x, y) {
+    const vx = x - cx, vy = cy - y, d = Math.hypot(vx, vy);
+    if (d < Math.max(28, R * 0.35)) return -1;
+    const step = 2 * Math.PI / APPS.length;
+    const k = Math.round((Math.PI / 2 - Math.atan2(vy, vx)) / step);
+    return ((k % APPS.length) + APPS.length) % APPS.length;
+  }
+
+  // Opening an app: the tile grows to fill the screen.
+  let appOpen = false, appFrom = null;
+  function launch(i) {
+    const t = tiles[i];
+    const r = t.getBoundingClientRect();
+    appFrom = { r, i };
+    appEl.style.setProperty('--c', APPS[i].c);
+    appEl.setAttribute('aria-label', APPS[i].name);
+    appEl.innerHTML = svg(APPS[i].g);
+    Object.assign(appEl.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', borderRadius: '30%' });
+    appEl.classList.add('show');
+    hide();
+    appOpen = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      Object.assign(appEl.style, { left: '0px', top: '0px', width: innerWidth + 'px', height: innerHeight + 'px', borderRadius: '0' });
+      appEl.classList.add('full');
+    }));
+    appEl.tabIndex = -1; appEl.focus({ preventScroll: true });
+    if (navigator.vibrate) navigator.vibrate(20);
+  }
+  function closeApp() {
+    if (!appOpen) return;
+    appOpen = false;
+    const r = appFrom.r;
+    appEl.classList.remove('full');
+    Object.assign(appEl.style, { left: (r.left + r.width / 2) + 'px', top: (r.top + r.height / 2) + 'px', width: '0px', height: '0px', borderRadius: '50%' });
+    setTimeout(() => { if (!appOpen) appEl.classList.remove('show'); }, reduced ? 0 : 450);
+  }
+  appEl.addEventListener('click', closeApp);
+
+  // Pointer.
+  addEventListener('pointermove', (e) => {
+    px = e.clientX; py = e.clientY;
+    if (appOpen) { lastX = lastY = null; return; }
+    if (open) { select(pick(px, py)); return; }
+    if (lastX !== null) {
+      const now = performance.now();
+      const dx = px - lastX, dy = py - lastY;
+      const n = Math.max(feed(ax, dx, now), feed(ay, dy, now));
+      energy = Math.min(1, energy + Math.hypot(dx, dy) / 400);
+      meter.style.strokeDashoffset = CIRC * (1 - n / REVERSALS);
+      if (n >= REVERSALS) show(px, py);
+    }
+    lastX = px; lastY = py;
+    wake();
+  }, { passive: true });
+  addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') lastX = lastY = null; });
+  addEventListener('pointerdown', (e) => {
+    lastX = e.clientX; lastY = e.clientY;
+    // Double-tap opens the ring on touch screens, as an alternative to shaking.
+    if (!open && !appOpen && e.pointerType !== 'mouse' && !e.target.closest('a')) {
+      const now = performance.now();
+      if (now - lastTap < 300) show(e.clientX, e.clientY);
+      lastTap = now;
+      return;
+    }
+    if (!open || e.target.closest('.tile, a')) return;
+    const i = pick(e.clientX, e.clientY);
+    if (i >= 0 && e.pointerType === 'mouse') launch(i); else hide();
+  });
+  addEventListener('contextmenu', (e) => { if (open) { e.preventDefault(); hide(); } });
+
+  // Keyboard: Space opens at the pointer, arrows choose, Enter opens, Esc closes.
+  addEventListener('keydown', (e) => {
+    if (appOpen) { if (['Escape', 'Enter', ' '].includes(e.key)) { e.preventDefault(); closeApp(); } return; }
+    if (!open) {
+      if (e.key === ' ' && !e.target.closest('a')) { e.preventDefault(); show(px, py); select(0); tiles[0].focus({ preventScroll: true }); }
+      return;
+    }
+    const n = APPS.length;
+    if (e.key === 'Escape') { hide(); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); tiles[(Math.max(sel, -1) + 1) % n].focus({ preventScroll: true }); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); tiles[(sel <= 0 ? n : sel) - 1].focus({ preventScroll: true }); }
+    else if ((e.key === 'Enter' || e.key === ' ') && sel >= 0) { e.preventDefault(); launch(sel); }
+  });
+
+  // Hint: if nobody has shaken yet, the follower wiggles a little mouse.
+  let idle;
+  function poke() {
+    clearTimeout(idle);
+    follower.classList.remove('hint');
+    if (!everOpened) idle = setTimeout(() => follower.classList.add('hint'), 2200);
+  }
+  addEventListener('pointermove', poke, { passive: true });
+  poke();
+
+  // Dot field: dots lean away from the pointer and wobble with shake energy.
+  const cv = document.getElementById('dots');
+  const ctx = cv.getContext('2d');
+  let W, H, dpr, running = false;
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (open) hide();
+    draw(performance.now());
+  }
+  addEventListener('resize', resize);
+
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    const S = 28, reach = 140;
+    const wob = reduced ? 0 : energy * 6;
+    ctx.beginPath();
+    for (let y = S / 2; y < H + S; y += S) {
+      for (let x = S / 2; x < W + S; x += S) {
+        let dx = x - fx, dy = y - fy, d = Math.hypot(dx, dy), ox = 0, oy = 0, r = 1.6;
+        if (d < reach && d > 0.01) {
+          const f = (1 - d / reach) ** 2;
+          ox = dx / d * f * 18; oy = dy / d * f * 18; r += f * 1.4;
+        }
+        if (wob) { ox += Math.sin(t / 40 + y * 0.3) * wob; oy += Math.cos(t / 47 + x * 0.3) * wob; }
+        ctx.moveTo(x + ox + r, y + oy);
+        ctx.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+      }
+    }
+    ctx.fill();
+  }
+
+  function frame(t) {
+    const k = reduced ? 1 : 0.22;
+    fx += (px - fx) * k; fy += (py - fy) * k;
+    energy *= 0.93;
+    follower.style.transform = `translate(${fx}px, ${fy}px) rotate(${reduced ? 0 : Math.sin(t / 30) * energy * 25}deg)`;
+    letters.forEach((s, i) => {
+      s.style.setProperty('--r', `${reduced ? 0 : Math.sin(t / 45 + i * 1.3) * energy * 18}deg`);
+      s.style.setProperty('--dy', `${reduced ? 0 : Math.cos(t / 38 + i) * energy * 8}px`);
+    });
+    if (!open) {
+      const filled = parseFloat(meter.style.strokeDashoffset || CIRC);
+      if (energy < 0.02 && filled < CIRC) meter.style.strokeDashoffset = CIRC;
+    }
+    draw(t);
+    if (Math.hypot(px - fx, py - fy) > 0.3 || energy > 0.005) requestAnimationFrame(frame);
+    else running = false;
+  }
+  function wake() { if (!running) { running = true; requestAnimationFrame(frame); } }
+
+  resize();
+  follower.style.transform = `translate(${fx}px, ${fy}px)`;
+})();
+</script>
+</body>
+</html>
