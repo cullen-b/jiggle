@@ -11,11 +11,9 @@ click anywhere in an app's slice to open (or switch to) it. Right-click an app f
 Remove from Dock, Show in Finder, Hide, Quit, and Force Quit with Option). Click outside the ring or press
 Esc to close it.
 
-The menu bar icon chooses between all Dock apps and only open apps, sets the ring's opacity, adds any app
-to the ring (it stays even when closed and not in the Dock), and quits. Right-click an app in the ring and
-choose Keep in Jiggle or Remove from Jiggle to do the same from there.
-
-Order matches the Dock: Finder, pinned apps, then other running apps (dot = running).
+Right-click the ring's center hub (or click the menu bar icon) for the Jiggle menu: show all Dock apps or
+only open ones, ring opacity, add apps, Settings…, and Quit. Apps you add stay in the ring even when they're
+closed and not in the Dock; right-click an app and choose Keep in Jiggle or Remove from Jiggle to do the same.
 
 - ~330 KB binary, AppKit only, no runtime besides the system frameworks
 - Idle cost: one event-tap callback per mouse move; nothing polls
@@ -42,7 +40,28 @@ Accessibility permission across updates. Set `JIGGLE_NO_UPDATE=1` to turn this o
 Releasing: bump `version` in `Cargo.toml`, then push a matching tag (`git tag v0.3.0 && git push origin v0.3.0`).
 The `release` workflow builds a universal binary, signs it and publishes `Jiggle.zip`.
 
+## Settings
+
+Change them in **Settings…** (Jiggle menu), or from a terminal: they live in the macOS defaults domain
+`local.jiggle`, so you or an AI agent can read and write them with `defaults`. Jiggle picks up changes the next
+time the ring opens; no restart needed.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `OpenAppsOnly` | bool | `false` | Show only running apps (plus apps you added) instead of all Dock apps |
+| `RingOpacity` | int, 10–100 | `80` | Opacity of the ring's background, in percent |
+| `ExtraApps` | array of `.app` paths | empty | Apps always shown in the ring, even when closed and not in the Dock |
+
+```sh
+defaults read local.jiggle                                              # current settings
+defaults write local.jiggle OpenAppsOnly -bool true
+defaults write local.jiggle RingOpacity -int 60
+defaults write local.jiggle ExtraApps -array-add "/System/Applications/Notes.app"
+defaults write local.jiggle ExtraApps -array "/Applications/Safari.app" "/System/Applications/Notes.app"
+defaults delete local.jiggle RingOpacity                                # back to the default
+```
+
 ## Tuning
 
-Constants at the top of `src/main.rs`: `SHAKE_REVERSALS`, `SHAKE_MIN_LEG`, `SHAKE_WINDOW` (shake
+Compile-time constants at the top of `src/main.rs`: `SHAKE_REVERSALS`, `SHAKE_MIN_LEG`, `SHAKE_WINDOW` (shake
 sensitivity), `ICON`, `DISMISS_DISTANCE`.

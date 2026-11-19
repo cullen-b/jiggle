@@ -1,10 +1,12 @@
 //! jiggle: shake the mouse to summon your Dock apps in a ring around the pointer.
 //! The ring is a pie: click anywhere in an app's slice to open it. Clicking outside the ring, its center,
-//! or pressing Esc closes it. Right-clicking an app shows its Dock-style menu. The menu bar icon holds the settings.
+//! or pressing Esc closes it. Right-clicking an app shows its Dock-style menu; right-clicking the center hub
+//! (or the menu bar icon) shows the Jiggle menu with the settings.
 
 mod appmenu;
 mod dock;
 mod settings;
+mod settings_window;
 mod update;
 
 use std::cell::{OnceCell, RefCell};
@@ -33,8 +35,8 @@ const COOLDOWN: Duration = Duration::from_millis(700);
 const ICON: f64 = 52.0;
 const PAD: f64 = 22.0;
 const DISMISS_DISTANCE: f64 = 450.0;
-// Clicks this close to the center (where the ring opened) select nothing, so they close it.
-const CENTER_DEAD: f64 = 14.0;
+// The center hub: a left click there closes the ring, a right click opens the Jiggle menu.
+const CENTER_DEAD: f64 = 24.0;
 const SELECTED_SCALE: f64 = 1.25;
 
 // CoreGraphics / CoreFoundation / HIServices FFI (just what the event tap needs).
@@ -137,8 +139,8 @@ struct Model {
     y: Axis,
     cooldown: Instant,
     swallow_up: bool,
-    // Index of the app whose right-click menu is waiting to open, and whether it is open now.
-    menu_for: Option<usize>,
+    // What the pending right-click menu is for (an app, or None for the Jiggle menu), and whether a menu is open.
+    menu_for: Option<Option<usize>>,
     menu_open: bool,
 }
 
@@ -255,6 +257,16 @@ fn draw(bounds: NSRect) {
         NSColor::colorWithWhite_alpha(1.0, 0.14).setStroke();
         disc.setLineWidth(1.0);
         disc.stroke();
+        let hub = NSBezierPath::bezierPathWithOvalInRect(square(c, CENTER_DEAD));
+        NSColor::colorWithWhite_alpha(1.0, 0.08).setFill();
+        hub.fill();
+        if m.selected.is_none() {
+            // Three dots hint that the hub has a menu.
+            NSColor::colorWithWhite_alpha(1.0, 0.55).setFill();
+            for dx in [-7.0, 0.0, 7.0] {
+                NSBezierPath::bezierPathWithOvalInRect(square(NSPoint::new(c.x + dx, c.y), 1.8)).fill();
+            }
+        }
 
         // The selected app's pie slice.
         if a.wedge_alpha > 0.01 {
@@ -409,12 +421,18 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
         apps.push(App {
             path: path.clone(),
             url: NSURL::fileURLWithPath(&ns),
-            name: fm.displayNameAtPath(&ns),
+            name: app_name(&fm.displayNameAtPath(&ns)),
             icon,
             running,
         });
     }
     apps
+}
+
+/// Display name without ".app", which Finder adds when "Show all filename extensions" is on.
+fn app_name(display: &NSString) -> Retained<NSString> {
+    let s = display.to_string();
+    NSString::from_str(s.strip_suffix(".app").unwrap_or(&s))
 }
 
 fn screen_frames(mtm: MainThreadMarker) -> Vec<NSRect> {
@@ -437,6 +455,7 @@ fn show(p: NSPoint, mtm: MainThreadMarker) {
     let frame = MODEL.with(|m| {
         let mut m = m.borrow_mut();
         let m = &mut *m;
+        settings::reload();
         m.apps = load_apps(&mut m.icons, settings::open_apps_only());
         m.opacity = settings::ring_opacity();
         if m.apps.is_empty() {
@@ -526,16 +545,19 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
     }
 }
 
-/// Right-click on an app opens its menu (once this event returns); anywhere else it closes the ring.
-fn on_right_click() -> bool {
+/// Right-click on an app opens its menu, on the center hub the Jiggle menu (once this event returns);
+/// anywhere else it closes the ring.
+fn on_right_click(p: NSPoint) -> bool {
     let (visible, target) = MODEL.with(|m| {
         let mut m = m.borrow_mut();
         if !m.visible {
             return (false, None);
         }
         m.swallow_up = true;
-        m.menu_for = m.selected;
-        (true, m.selected)
+        let on_hub = (p.x - m.center.x).hypot(p.y - m.center.y) < CENTER_DEAD;
+        let target = if on_hub { Some(None) } else { m.selected.map(Some) };
+        m.menu_for = target;
+        (true, target)
     });
     if !visible {
         return false;
@@ -553,15 +575,19 @@ fn on_right_click() -> bool {
 
 fn show_app_menu() {
     let mtm = MainThreadMarker::new().expect("main thread");
-    let path = MODEL.with(|m| {
+    // Some(Some(path)) for an app's menu, Some(None) for the Jiggle menu.
+    let target = MODEL.with(|m| {
         let mut m = m.borrow_mut();
-        let path = m.menu_for.take().filter(|_| m.visible).and_then(|i| m.apps.get(i)).map(|a| a.path.clone());
-        m.menu_open = path.is_some();
-        path
+        let target = m.menu_for.take().filter(|_| m.visible).map(|t| t.and_then(|i| m.apps.get(i)).map(|a| a.path.clone()));
+        m.menu_open = target.is_some();
+        target
     });
-    let Some(path) = path else { return };
-    // The ring stays up behind the menu so it's clear which app it's for; events pass through meanwhile.
-    appmenu::popup(&path, NSEvent::mouseLocation(), mtm);
+    let Some(target) = target else { return };
+    // The ring stays up behind the menu so it's clear what it's for; events pass through meanwhile.
+    match target {
+        Some(path) => appmenu::popup(&path, NSEvent::mouseLocation(), mtm),
+        None => settings::popup_menu(NSEvent::mouseLocation()),
+    }
     MODEL.with(|m| m.borrow_mut().menu_open = false);
     hide();
 }
@@ -596,7 +622,7 @@ unsafe extern "C" fn on_event(_proxy: *mut c_void, ty: u32, ev: *mut c_void, _us
         _ if MODEL.with(|m| m.borrow().menu_open) => {}
         MOVED | L_DRAG | R_DRAG | O_DRAG => on_move(ev, mtm),
         R_DOWN => {
-            if on_right_click() {
+            if on_right_click(event_point(ev, mtm)) {
                 return null_mut();
             }
         }
@@ -746,8 +772,8 @@ mod tests {
     #[test]
     fn slices_cover_the_whole_pie_inside_the_ring() {
         // Four apps: top, right, bottom, left. Just past the center already picks a slice.
-        assert_eq!(slice_at(0.0, 20.0, 4, 150.0), Some(0));
-        assert_eq!(slice_at(20.0, 0.0, 4, 150.0), Some(1));
+        assert_eq!(slice_at(0.0, 30.0, 4, 150.0), Some(0));
+        assert_eq!(slice_at(30.0, 0.0, 4, 150.0), Some(1));
         assert_eq!(slice_at(0.0, -140.0, 4, 150.0), Some(2));
         assert_eq!(slice_at(-100.0, 10.0, 4, 150.0), Some(3));
         // Slice edges sit halfway between icons.
@@ -758,6 +784,7 @@ mod tests {
     #[test]
     fn center_and_outside_select_nothing() {
         assert_eq!(slice_at(3.0, 4.0, 4, 150.0), None);
+        assert_eq!(slice_at(0.0, 20.0, 4, 150.0), None);
         assert_eq!(slice_at(0.0, 151.0, 4, 150.0), None);
         assert_eq!(slice_at(0.0, 50.0, 0, 150.0), None);
     }
