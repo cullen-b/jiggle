@@ -1,6 +1,8 @@
 //! jiggle: shake the mouse to summon your Dock apps in a ring around the pointer.
 //! Point toward an app and click to open it; Esc, right-click or clicking the middle dismisses.
 
+mod update;
+
 use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f64::consts::{FRAC_PI_2, TAU};
@@ -495,6 +497,7 @@ fn build_ui(mtm: MainThreadMarker) -> Ui {
 
 fn main() {
     let mtm = MainThreadMarker::new().expect("must run on the main thread");
+    update::spawn();
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     wait_for_accessibility();

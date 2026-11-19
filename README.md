@@ -15,14 +15,24 @@ Order matches the Dock: Finder, pinned apps, then other running apps (dot = runn
 ## Install
 
 ```sh
-chmod +x install.sh && ./install.sh
+git clone https://github.com/cullen-b/jiggle.git && cd jiggle && ./install.sh
 ```
 
-Builds `~/Applications/Jiggle.app`, starts it now and at every login (`~/Library/LaunchAgents/local.jiggle.plist`).
-Grant it **Accessibility** when asked. The app is ad-hoc signed, so after a rebuild remove and re-add it in
-the Accessibility list.
+Installs the latest signed release to `~/Applications/Jiggle.app` and starts it now and at every login
+(`~/Library/LaunchAgents/local.jiggle.plist`). Grant it **Accessibility** when asked.
+`./install.sh --source` builds from this checkout instead.
 
 Uninstall: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.jiggle.plist && rm -rf ~/Applications/Jiggle.app ~/Library/LaunchAgents/local.jiggle.plist`
+
+## Updates
+
+Jiggle checks GitHub 20 seconds after it starts and every 6 hours after that. When a newer release exists it
+downloads it, installs it only if it is signed by the jiggle certificate pinned in
+`scripts/requirement.txt`, and restarts. Because every release carries the same signature, macOS keeps the
+Accessibility permission across updates. Set `JIGGLE_NO_UPDATE=1` to turn this off.
+
+Releasing: bump `version` in `Cargo.toml`, then push a matching tag (`git tag v0.3.0 && git push origin v0.3.0`).
+The `release` workflow builds a universal binary, signs it and publishes `Jiggle.zip`.
 
 ## Tuning
 
