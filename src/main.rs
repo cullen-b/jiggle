@@ -376,7 +376,8 @@ fn square(c: NSPoint, half: f64) -> NSRect {
     NSRect::new(NSPoint::new(c.x - half, c.y - half), NSSize::new(half * 2.0, half * 2.0))
 }
 
-/// Finder, then the Dock's pinned apps, then other running apps, like the Dock itself.
+/// Finder, the Dock's pinned apps, the user's own added apps, then other running apps.
+/// With `open_only`, only running apps and the user's own added apps.
 fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) -> Vec<App> {
     let ws = NSWorkspace::sharedWorkspace();
     let mut running = Vec::new();
@@ -391,6 +392,8 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
 
     let mut paths = vec!["/System/Library/CoreServices/Finder.app".to_string()];
     paths.extend(dock::pinned_paths().into_iter().filter(|p| std::path::Path::new(p).exists()));
+    let extras: HashSet<String> = settings::extra_apps().into_iter().filter(|p| std::path::Path::new(p).exists()).collect();
+    paths.extend(settings::extra_apps().into_iter().filter(|p| extras.contains(p)));
     paths.extend(running.iter().cloned());
 
     let fm = NSFileManager::defaultManager();
@@ -398,7 +401,7 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) ->
     let mut apps = Vec::new();
     for path in paths {
         let running = running_set.contains(path.as_str());
-        if (open_only && !running) || !seen.insert(path.clone()) {
+        if (open_only && !running && !extras.contains(&path)) || !seen.insert(path.clone()) {
             continue;
         }
         let ns = NSString::from_str(&path);

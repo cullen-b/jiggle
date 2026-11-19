@@ -8,7 +8,7 @@ use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSEventModifierFlags, NSMenu, NSMenuItem, NSRunningApplication, NSWorkspace};
 use objc2_foundation::{ns_string, NSArray, NSObject, NSPoint, NSString, NSURL};
 
-use crate::dock;
+use crate::{dock, settings};
 
 const FINDER: &str = "/System/Library/CoreServices/Finder.app";
 
@@ -41,6 +41,20 @@ define_class!(
         fn remove_from_dock(&self, item: &NSMenuItem) {
             if let Some(p) = item_path(item) {
                 dock::set_pinned(&p, false);
+            }
+        }
+
+        #[unsafe(method(keepInJiggle:))]
+        fn keep_in_jiggle(&self, item: &NSMenuItem) {
+            if let Some(p) = item_path(item) {
+                settings::set_extra_app(&p, true);
+            }
+        }
+
+        #[unsafe(method(removeFromJiggle:))]
+        fn remove_from_jiggle(&self, item: &NSMenuItem) {
+            if let Some(p) = item_path(item) {
+                settings::set_extra_app(&p, false);
             }
         }
 
@@ -127,6 +141,13 @@ pub fn popup(path: &str, at: NSPoint, mtm: MainThreadMarker) {
             add("Remove from Dock", sel!(removeFromDock:));
         } else {
             add("Keep in Dock", sel!(keepInDock:));
+        }
+    }
+    if !is_finder {
+        if settings::extra_apps().iter().any(|p| p == path) {
+            add("Remove from Jiggle", sel!(removeFromJiggle:));
+        } else {
+            add("Keep in Jiggle", sel!(keepInJiggle:));
         }
     }
     add("Show in Finder", sel!(showInFinder:));

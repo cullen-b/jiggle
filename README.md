@@ -11,7 +11,9 @@ click anywhere in an app's slice to open (or switch to) it. Right-click an app f
 Remove from Dock, Show in Finder, Hide, Quit, and Force Quit with Option). Click outside the ring or press
 Esc to close it.
 
-The menu bar icon chooses between all Dock apps and only open apps, sets the ring's opacity, and quits.
+The menu bar icon chooses between all Dock apps and only open apps, sets the ring's opacity, adds any app
+to the ring (it stays even when closed and not in the Dock), and quits. Right-click an app in the ring and
+choose Keep in Jiggle or Remove from Jiggle to do the same from there.
 
 Order matches the Dock: Finder, pinned apps, then other running apps (dot = running).
 
