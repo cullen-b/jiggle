@@ -1,11 +1,13 @@
 //! jiggle: shake the mouse to summon your Dock apps in a ring around the pointer.
-//! Point toward an app and click to open it; Esc, right-click or clicking the middle dismisses.
+//! The ring is a pie: click anywhere in an app's slice to open it. Clicking outside the ring, its center,
+//! right-clicking or pressing Esc closes it. The menu bar icon holds the settings.
 
+mod settings;
 mod update;
 
 use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::f64::consts::{FRAC_PI_2, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 use std::ffi::c_void;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -13,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
+use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBezierPath, NSColor,
     NSFont, NSFontAttributeName, NSForegroundColorAttributeName, NSImage, NSPanel, NSScreen,
@@ -32,6 +34,9 @@ const COOLDOWN: Duration = Duration::from_millis(700);
 const ICON: f64 = 52.0;
 const PAD: f64 = 22.0;
 const DISMISS_DISTANCE: f64 = 450.0;
+// Clicks this close to the center (where the ring opened) select nothing, so they close it.
+const CENTER_DEAD: f64 = 14.0;
+const SELECTED_SCALE: f64 = 1.25;
 
 // CoreGraphics / CoreFoundation / HIServices FFI (just what the event tap needs).
 type TapCallback = unsafe extern "C" fn(*mut c_void, u32, *mut c_void, *mut c_void) -> *mut c_void;
@@ -108,8 +113,21 @@ impl Axis {
     }
 }
 
+/// Smoothed values the ring is drawn with; they ease toward their targets on every frame.
+struct Anim {
+    running: bool,
+    last: Instant,
+    instant: bool,
+    appear: f64,
+    wedge_angle: f64,
+    wedge_alpha: f64,
+    scales: Vec<f64>,
+}
+
 struct Model {
     apps: Vec<App>,
+    opacity: f64,
+    anim: Anim,
     icons: HashMap<String, Retained<NSImage>>,
     visible: bool,
     center: NSPoint,
@@ -129,6 +147,16 @@ struct Ui {
 thread_local! {
     static MODEL: RefCell<Model> = RefCell::new(Model {
         apps: Vec::new(),
+        opacity: 0.8,
+        anim: Anim {
+            running: false,
+            last: Instant::now(),
+            instant: false,
+            appear: 1.0,
+            wedge_angle: 0.0,
+            wedge_alpha: 0.0,
+            scales: Vec::new(),
+        },
         icons: HashMap::new(),
         visible: false,
         center: NSPoint::new(0.0, 0.0),
@@ -153,6 +181,16 @@ define_class!(
         fn draw_rect(&self, _dirty: NSRect) {
             draw(self.bounds());
         }
+
+        #[unsafe(method(jiggleTick))]
+        fn tick(&self) {
+            let (running, appear) = step_anim();
+            UI.with(|ui| ui.get().expect("ui").panel.setAlphaValue(appear));
+            self.setNeedsDisplay(true);
+            if running {
+                schedule_tick();
+            }
+        }
     }
 );
 
@@ -171,10 +209,24 @@ fn outer_radius(r: f64) -> f64 {
     r + ICON / 2.0 + PAD
 }
 
-/// Offset of slot `i` of `n` from the ring center: first slot at 12 o'clock, then clockwise.
-fn slot(i: usize, n: usize, r: f64) -> (f64, f64) {
-    let a = FRAC_PI_2 - i as f64 * TAU / n as f64;
-    (r * a.cos(), r * a.sin())
+/// Angle of slot `i` of `n`: first slot at 12 o'clock, then clockwise.
+fn slot_angle(i: usize, n: usize) -> f64 {
+    FRAC_PI_2 - i as f64 * TAU / n as f64
+}
+
+/// The slot whose pie slice contains the offset (vx, vy) from the center, if it's inside the ring.
+fn slice_at(vx: f64, vy: f64, n: usize, outer: f64) -> Option<usize> {
+    let d = vx.hypot(vy);
+    if n == 0 || d < CENTER_DEAD || d > outer {
+        return None;
+    }
+    let k = ((FRAC_PI_2 - vy.atan2(vx)) / (TAU / n as f64)).round() as i64;
+    Some(k.rem_euclid(n as i64) as usize)
+}
+
+/// Shortest signed angular distance, in -PI..PI.
+fn wrap_angle(a: f64) -> f64 {
+    (a + PI).rem_euclid(TAU) - PI
 }
 
 fn draw(bounds: NSRect) {
@@ -184,24 +236,34 @@ fn draw(bounds: NSRect) {
         if n == 0 {
             return;
         }
+        let a = &m.anim;
         let c = NSPoint::new(bounds.size.width / 2.0, bounds.size.height / 2.0);
         let outer = outer_radius(m.radius);
         let disc = NSBezierPath::bezierPathWithOvalInRect(square(c, outer - 1.0));
-        NSColor::colorWithWhite_alpha(0.08, 0.82).setFill();
+        NSColor::colorWithWhite_alpha(0.08, m.opacity).setFill();
         disc.fill();
         NSColor::colorWithWhite_alpha(1.0, 0.14).setStroke();
         disc.setLineWidth(1.0);
         disc.stroke();
 
+        // The selected app's pie slice.
+        if a.wedge_alpha > 0.01 {
+            let half = 180.0 / n as f64;
+            let mid = a.wedge_angle.to_degrees();
+            let wedge = NSBezierPath::bezierPath();
+            wedge.moveToPoint(c);
+            wedge.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle(c, outer - 1.0, mid - half, mid + half);
+            wedge.closePath();
+            NSColor::colorWithWhite_alpha(1.0, 0.16 * a.wedge_alpha).setFill();
+            wedge.fill();
+        }
+
+        // Icons start a little inward and ease out to the ring as it appears.
+        let r = m.radius * (0.82 + 0.18 * a.appear);
         for (i, app) in m.apps.iter().enumerate() {
-            let (dx, dy) = slot(i, n, m.radius);
-            let p = NSPoint::new(c.x + dx, c.y + dy);
-            let selected = m.selected == Some(i);
-            let size = if selected { ICON * 1.25 } else { ICON };
-            if selected {
-                NSColor::colorWithWhite_alpha(1.0, 0.22).setFill();
-                NSBezierPath::bezierPathWithOvalInRect(square(p, size * 0.66)).fill();
-            }
+            let ang = slot_angle(i, n);
+            let p = NSPoint::new(c.x + r * ang.cos(), c.y + r * ang.sin());
+            let size = ICON * a.scales.get(i).copied().unwrap_or(1.0);
             app.icon.drawInRect(square(p, size / 2.0));
             if app.running {
                 NSColor::colorWithWhite_alpha(1.0, 0.75).setFill();
@@ -224,12 +286,88 @@ fn draw(bounds: NSRect) {
     });
 }
 
+/// Advances the animation one frame. Returns whether it is still moving, and the window alpha.
+fn step_anim() -> (bool, f64) {
+    MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        let m = &mut *m;
+        let n = m.apps.len();
+        let a = &mut m.anim;
+        if !m.visible {
+            a.running = false;
+            return (false, 1.0);
+        }
+        let now = Instant::now();
+        let dt = (now - a.last).as_secs_f64().min(0.05);
+        a.last = now;
+        let ease = |rate: f64| if a.instant { 1.0 } else { 1.0 - (-dt * rate).exp() };
+        let (k, k_appear) = (ease(20.0), ease(14.0));
+
+        a.appear += (1.0 - a.appear) * k_appear;
+        match m.selected {
+            Some(i) => {
+                let target = slot_angle(i, n);
+                if a.wedge_alpha < 0.02 {
+                    a.wedge_angle = target;
+                } else {
+                    a.wedge_angle += wrap_angle(target - a.wedge_angle) * k;
+                }
+                a.wedge_alpha += (1.0 - a.wedge_alpha) * k;
+            }
+            None => a.wedge_alpha -= a.wedge_alpha * k,
+        }
+        let mut settled = 1.0 - a.appear < 0.002;
+        let wedge_target = if m.selected.is_some() { 1.0 } else { 0.0 };
+        settled &= (wedge_target - a.wedge_alpha).abs() < 0.002;
+        if let Some(i) = m.selected {
+            settled &= wrap_angle(slot_angle(i, n) - a.wedge_angle).abs() < 0.001;
+        }
+        for (j, s) in a.scales.iter_mut().enumerate() {
+            let t = if m.selected == Some(j) { SELECTED_SCALE } else { 1.0 };
+            *s += (t - *s) * k;
+            settled &= (t - *s).abs() < 0.002;
+        }
+        if settled {
+            a.appear = 1.0;
+            a.wedge_alpha = wedge_target;
+            for (j, s) in a.scales.iter_mut().enumerate() {
+                *s = if m.selected == Some(j) { SELECTED_SCALE } else { 1.0 };
+            }
+            a.running = false;
+        }
+        (!settled, a.appear)
+    })
+}
+
+fn start_anim() {
+    let start = MODEL.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.anim.running {
+            return false;
+        }
+        m.anim.running = true;
+        m.anim.last = Instant::now();
+        true
+    });
+    if start {
+        schedule_tick();
+    }
+}
+
+fn schedule_tick() {
+    UI.with(|ui| {
+        let view = &ui.get().expect("ui").view;
+        let none: Option<&AnyObject> = None;
+        let _: () = unsafe { msg_send![&**view, performSelector: sel!(jiggleTick), withObject: none, afterDelay: 1.0f64 / 120.0] };
+    });
+}
+
 fn square(c: NSPoint, half: f64) -> NSRect {
     NSRect::new(NSPoint::new(c.x - half, c.y - half), NSSize::new(half * 2.0, half * 2.0))
 }
 
 /// Finder, then the Dock's pinned apps, then other running apps, like the Dock itself.
-fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>) -> Vec<App> {
+fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>, open_only: bool) -> Vec<App> {
     let ws = NSWorkspace::sharedWorkspace();
     let mut running = Vec::new();
     for a in ws.runningApplications().iter() {
@@ -263,7 +401,8 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>) -> Vec<App> {
     let mut seen = HashSet::new();
     let mut apps = Vec::new();
     for path in paths {
-        if !seen.insert(path.clone()) {
+        let running = running_set.contains(path.as_str());
+        if (open_only && !running) || !seen.insert(path.clone()) {
             continue;
         }
         let ns = NSString::from_str(&path);
@@ -272,7 +411,7 @@ fn load_apps(icons: &mut HashMap<String, Retained<NSImage>>) -> Vec<App> {
             url: NSURL::fileURLWithPath(&ns),
             name: fm.displayNameAtPath(&ns),
             icon,
-            running: running_set.contains(path.as_str()),
+            running,
         });
     }
     apps
@@ -298,7 +437,8 @@ fn show(p: NSPoint, mtm: MainThreadMarker) {
     let frame = MODEL.with(|m| {
         let mut m = m.borrow_mut();
         let m = &mut *m;
-        m.apps = load_apps(&mut m.icons);
+        m.apps = load_apps(&mut m.icons, settings::open_apps_only());
+        m.opacity = settings::ring_opacity();
         if m.apps.is_empty() {
             return None;
         }
@@ -313,15 +453,21 @@ fn show(p: NSPoint, mtm: MainThreadMarker) {
         m.center = c;
         m.selected = None;
         m.visible = true;
+        m.anim.instant = NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion();
+        m.anim.appear = 0.0;
+        m.anim.wedge_alpha = 0.0;
+        m.anim.scales = vec![1.0; m.apps.len()];
         Some(square(c, outer))
     });
     let Some(frame) = frame else { return };
     UI.with(|ui| {
         let ui = ui.get().expect("ui");
+        ui.panel.setAlphaValue(0.0);
         ui.panel.setFrame_display(frame, false);
         ui.view.setNeedsDisplay(true);
         ui.panel.orderFrontRegardless();
     });
+    start_anim();
 }
 
 fn hide() {
@@ -336,15 +482,11 @@ fn hide() {
     UI.with(|ui| ui.get().expect("ui").panel.orderOut(None));
 }
 
-fn redraw() {
-    UI.with(|ui| ui.get().expect("ui").view.setNeedsDisplay(true));
-}
-
 enum Act {
     Nothing,
     Show,
     Hide,
-    Redraw,
+    Animate,
 }
 
 fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
@@ -358,15 +500,10 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
             if dist > m.radius + DISMISS_DISTANCE {
                 return Act::Hide;
             }
-            let n = m.apps.len();
-            let sel = (dist > (m.radius * 0.35).max(28.0)).then(|| {
-                let step = TAU / n as f64;
-                let k = ((FRAC_PI_2 - vy.atan2(vx)) / step).round() as i64;
-                k.rem_euclid(n as i64) as usize
-            });
+            let sel = slice_at(vx, vy, m.apps.len(), outer_radius(m.radius));
             if sel != m.selected {
                 m.selected = sel;
-                return Act::Redraw;
+                return Act::Animate;
             }
             return Act::Nothing;
         }
@@ -385,7 +522,7 @@ fn on_move(ev: *mut c_void, mtm: MainThreadMarker) {
         Act::Nothing => {}
         Act::Show => show(event_point(ev, mtm), mtm),
         Act::Hide => hide(),
-        Act::Redraw => redraw(),
+        Act::Animate => start_anim(),
     }
 }
 
@@ -518,6 +655,7 @@ fn main() {
         let _ = u.set(build_ui(mtm));
     });
     install_tap();
+    settings::install_menu(mtm);
     app.run();
 }
 
@@ -559,9 +697,32 @@ mod tests {
 
     #[test]
     fn slots_go_clockwise_from_top() {
-        let (x, y) = slot(0, 4, 100.0);
-        assert!(x.abs() < 1e-9 && (y - 100.0).abs() < 1e-9);
-        let (x, y) = slot(1, 4, 100.0);
-        assert!((x - 100.0).abs() < 1e-9 && y.abs() < 1e-9);
+        assert!((slot_angle(0, 4) - FRAC_PI_2).abs() < 1e-9);
+        assert!(slot_angle(1, 4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn slices_cover_the_whole_pie_inside_the_ring() {
+        // Four apps: top, right, bottom, left. Just past the center already picks a slice.
+        assert_eq!(slice_at(0.0, 20.0, 4, 150.0), Some(0));
+        assert_eq!(slice_at(20.0, 0.0, 4, 150.0), Some(1));
+        assert_eq!(slice_at(0.0, -140.0, 4, 150.0), Some(2));
+        assert_eq!(slice_at(-100.0, 10.0, 4, 150.0), Some(3));
+        // Slice edges sit halfway between icons.
+        assert_eq!(slice_at(30.0, 31.0, 4, 150.0), Some(0));
+        assert_eq!(slice_at(31.0, 30.0, 4, 150.0), Some(1));
+    }
+
+    #[test]
+    fn center_and_outside_select_nothing() {
+        assert_eq!(slice_at(3.0, 4.0, 4, 150.0), None);
+        assert_eq!(slice_at(0.0, 151.0, 4, 150.0), None);
+        assert_eq!(slice_at(0.0, 50.0, 0, 150.0), None);
+    }
+
+    #[test]
+    fn wrap_takes_the_short_way_round() {
+        assert!((wrap_angle(TAU - 0.1) + 0.1).abs() < 1e-9);
+        assert!((wrap_angle(-TAU + 0.1) - 0.1).abs() < 1e-9);
     }
 }
