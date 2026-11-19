@@ -517,7 +517,7 @@
    This downloads the latest signed release, checks its signature, installs it to ~/Applications/Jiggle.app and starts it at login. It updates itself from GitHub releases.
 3. Check that it's running: pgrep -fl Jiggle.app
 4. Tell me to turn on Jiggle in System Settings > Privacy & Security > Accessibility, then shake my mouse to try it.
-5. Jiggle's settings live in the macOS defaults domain local.jiggle (keys OpenAppsOnly, RingOpacity, ExtraApps). If I ask you to change one later, use defaults write; the README's Settings section explains each key.`;
+5. Jiggle's settings live in the macOS defaults domain local.jiggle (keys OpenAppsOnly, RingOpacity, ExtraApps, Shortcut; the shortcut is off unless set, e.g. ctrl+opt+space). If I ask you to change one later, use defaults write; the README's Settings section explains each key.`;
   const ask = document.querySelector('.ask');
   const askStatus = document.getElementById('ask-status');
   let askTimer;
