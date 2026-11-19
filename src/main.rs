@@ -440,16 +440,29 @@ unsafe extern "C" fn on_event(_proxy: *mut c_void, ty: u32, ev: *mut c_void, _us
 }
 
 fn wait_for_accessibility() {
+    // macOS keeps answering "not trusted" to a running process after the user grants access,
+    // so while waiting we re-exec ourselves every few seconds to get a fresh answer.
+    let prompted = std::env::var_os("JIGGLE_PROMPTED").is_some();
     let key = unsafe { &*(kAXTrustedCheckOptionPrompt as *const NSString) };
-    let yes = NSNumber::new_bool(true);
-    let opts = NSDictionary::from_slices(&[key], &[&*yes]);
+    let flag = NSNumber::new_bool(!prompted);
+    let opts = NSDictionary::from_slices(&[key], &[&*flag]);
     if unsafe { AXIsProcessTrustedWithOptions(Retained::as_ptr(&opts).cast()) } {
         return;
     }
-    eprintln!("jiggle: grant Accessibility access in System Settings > Privacy & Security > Accessibility");
-    while !unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) } {
-        std::thread::sleep(Duration::from_secs(1));
+    if !prompted {
+        eprintln!("jiggle: grant Accessibility access in System Settings > Privacy & Security > Accessibility");
+        update::check_now();
     }
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_secs(1));
+        if unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) } {
+            return;
+        }
+    }
+    let exe = std::env::current_exe().expect("current exe");
+    let err = std::os::unix::process::CommandExt::exec(std::process::Command::new(exe).env("JIGGLE_PROMPTED", "1"));
+    eprintln!("jiggle: re-exec failed: {err}");
+    std::process::exit(1);
 }
 
 fn install_tap() {
