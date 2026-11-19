@@ -160,18 +160,18 @@
     <linearGradient id="g-files-back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4f9dff"/><stop offset="1" stop-color="#1a64d6"/></linearGradient>
     <linearGradient id="g-files-front" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fc6ff"/><stop offset="1" stop-color="#3a8af2"/></linearGradient>
     <linearGradient id="g-music-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd25e"/><stop offset=".55" stop-color="#ff9a2e"/><stop offset="1" stop-color="#f2621f"/></linearGradient>
-    <linearGradient id="g-cam-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5d6370"/><stop offset="1" stop-color="#1e2128"/></linearGradient>
-    <linearGradient id="g-cam-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdfdfe"/><stop offset="1" stop-color="#bfc5cf"/></linearGradient>
-    <radialGradient id="g-cam-lens" cx=".38" cy=".34" r=".75"><stop offset="0" stop-color="#7aa8ff"/><stop offset=".5" stop-color="#1d3d96"/><stop offset="1" stop-color="#050b1f"/></radialGradient>
-    <linearGradient id="g-web-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#72d6ff"/><stop offset="1" stop-color="#1569e0"/></linearGradient>
-    <radialGradient id="g-web-globe" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#cfe7ff"/></radialGradient>
-    <linearGradient id="g-msg-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bb95ff"/><stop offset="1" stop-color="#5f2fe6"/></linearGradient>
     <linearGradient id="g-term-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d424c"/><stop offset="1" stop-color="#111317"/></linearGradient>
     <linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6cc6ff"/><stop offset="1" stop-color="#2670ea"/></linearGradient>
     <radialGradient id="g-sun" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fff7b8"/><stop offset=".55" stop-color="#ffc928"/><stop offset="1" stop-color="#ff9a1a"/></radialGradient>
     <linearGradient id="g-cloud" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe6f4"/></linearGradient>
     <linearGradient id="g-cal-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e7eaf0"/></linearGradient>
     <linearGradient id="g-cal-top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6a5f"/><stop offset="1" stop-color="#e2302a"/></linearGradient>
+    <linearGradient id="g-gh-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a414b"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+    <linearGradient id="g-coffee-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d89a62"/><stop offset="1" stop-color="#8a4b22"/></linearGradient>
+    <linearGradient id="g-dl-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6ff0a8"/><stop offset="1" stop-color="#14a34a"/></linearGradient>
+    <linearGradient id="g-val-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#232846"/><stop offset="1" stop-color="#3a2558"/></linearGradient>
+    <radialGradient id="g-val-glow" cx=".15" cy=".95" r=".8"><stop offset="0" stop-color="#9d8cff" stop-opacity=".55"/><stop offset="1" stop-color="#9d8cff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="g-val-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d9d3ff"/></linearGradient>
     <linearGradient id="g-gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>
     <filter id="g-drop" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#0b1440" flood-opacity=".3"/></filter>
   </defs>
@@ -213,37 +213,40 @@
   const month = now.toLocaleString('en', { month: 'short' }).toUpperCase();
   const bg = (id) => `<rect width="100" height="100" rx="23" fill="url(#${id})"/>`;
   const gloss = '<rect width="100" height="100" rx="23" fill="url(#g-gloss)"/>';
+  const REPO = 'https://github.com/cullen-b/jiggle';
+  // Some tiles go somewhere: href opens a new tab, download saves a file, copy copies the install prompt.
   const APPS = [
-    { name: 'Files', art: bg('g-files-bg') +
-      '<path d="M17 29a5 5 0 0 1 5-5h17l7 7h32a5 5 0 0 1 5 5v38a6 6 0 0 1-6 6H23a6 6 0 0 1-6-6z" fill="url(#g-files-back)"/>' +
-      '<path d="M13 43a5 5 0 0 1 5-5h64a5 5 0 0 1 5 5v31a6 6 0 0 1-6 6H19a6 6 0 0 1-6-6z" fill="url(#g-files-front)" filter="url(#g-drop)"/>' +
-      '<path d="M18 42.5h64" stroke="#fff" stroke-opacity=".6" stroke-width="2" stroke-linecap="round"/>' },
-    { name: 'Music', run: 1, art: bg('g-music-bg') + gloss +
+    { name: 'Download Jiggle', download: REPO + '/releases/latest/download/Jiggle.zip', art: bg('g-dl-bg') + gloss +
+      '<g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" filter="url(#g-drop)"><path d="M50 20v42M31 45l19 19 19-19" stroke-width="9"/><path d="M24 70v7h52v-7" stroke-width="8"/></g>' },
+    { name: 'Jiggle on GitHub', href: REPO, art: bg('g-gh-bg') +
+      '<path transform="translate(20 20) scale(3.75)" fill="#fff" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>' },
+    { name: 'Music', run: 1, href: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', art: bg('g-music-bg') + gloss +
       '<g fill="#fff" filter="url(#g-drop)"><path d="M40 33 74 25v10l-34 8z"/><rect x="40" y="33" width="6" height="37"/><rect x="68" y="25" width="6" height="37"/>' +
       '<ellipse cx="36" cy="70" rx="10.5" ry="8" transform="rotate(-20 36 70)"/><ellipse cx="64" cy="62" rx="10.5" ry="8" transform="rotate(-20 64 62)"/></g>' },
-    { name: 'Camera', art: bg('g-cam-bg') +
-      '<rect x="35" y="22" width="26" height="13" rx="4" fill="#d6dae2"/>' +
-      '<rect x="13" y="30" width="74" height="50" rx="10" fill="url(#g-cam-body)" filter="url(#g-drop)"/>' +
-      '<circle cx="50" cy="56" r="20" fill="#2b2f38"/><circle cx="50" cy="56" r="15.5" fill="#101319" stroke="#5c6474" stroke-width="2"/>' +
-      '<circle cx="50" cy="56" r="10.5" fill="url(#g-cam-lens)"/><circle cx="45.5" cy="51.5" r="3" fill="#fff" opacity=".85"/>' +
-      '<circle cx="76" cy="39" r="3.5" fill="#ffcf3a"/>' },
-    { name: 'Web', run: 1, art: bg('g-web-bg') + gloss +
-      '<circle cx="50" cy="50" r="31" fill="url(#g-web-globe)" filter="url(#g-drop)"/>' +
-      '<g fill="none" stroke="#2a78ee" stroke-width="3" stroke-linecap="round"><ellipse cx="50" cy="50" rx="13" ry="31"/><path d="M19 50h62M24 34h52M24 66h52M50 19v62"/><circle cx="50" cy="50" r="31"/></g>' },
-    { name: 'Messages', art: bg('g-msg-bg') + gloss +
-      '<path d="M50 21c-20 0-36 13-36 29 0 8.7 4.8 16.4 12.4 21.7-.7 4.4-3 8.3-6.4 11 6.8.3 13.3-2.1 18-6.4 3.8 1 7.8 1.5 12 1.5 20 0 36-13 36-28.8S70 21 50 21z" fill="#fff" filter="url(#g-drop)"/>' +
-      '<g fill="#7b4cf0"><circle cx="36" cy="50" r="4.5"/><circle cx="50" cy="50" r="4.5"/><circle cx="64" cy="50" r="4.5"/></g>' },
-    { name: 'Terminal', run: 1, art: bg('g-term-bg') +
+    { name: 'Buy me a coffee', href: 'https://payme.cullenbaker.com', art: bg('g-coffee-bg') + gloss +
+      '<g fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity=".85"><path d="M38 17c-3 4 3 7 0 11M50 15c-3 4 3 7 0 11M62 17c-3 4 3 7 0 11"/></g>' +
+      '<path d="M70 44h4a10 10 0 0 1 0 20h-4" fill="none" stroke="#fff" stroke-width="6" filter="url(#g-drop)"/>' +
+      '<path d="M24 38h48v24a18 18 0 0 1-18 18H42a18 18 0 0 1-18-18z" fill="#fff" filter="url(#g-drop)"/>' +
+      '<ellipse cx="48" cy="38" rx="24" ry="4.5" fill="#6b3a1c"/>' },
+    { name: 'Calendar', art: bg('g-cal-bg') +
+      '<path d="M0 23A23 23 0 0 1 23 0h54a23 23 0 0 1 23 23v7H0z" fill="url(#g-cal-top)"/>' +
+      `<text x="50" y="21.5" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="15" font-weight="700" fill="#fff" letter-spacing="1">${month}</text>` +
+      `<text x="50" y="80" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="48" font-weight="500" fill="#1d2230">${now.getDate()}</text>` },
+    { name: 'Terminal', title: 'Install prompt copied', run: 1, copy: true, art: bg('g-term-bg') +
       '<circle cx="19" cy="18" r="4" fill="#ff5f57"/><circle cx="31" cy="18" r="4" fill="#febc2e"/><circle cx="43" cy="18" r="4" fill="#28c840"/>' +
       '<path d="M24 45l14 11-14 11" fill="none" stroke="#4ade80" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>' +
       '<path d="M46 69h28" stroke="#e8eaf0" stroke-width="7" stroke-linecap="round"/>' },
     { name: 'Weather', art: bg('g-sky') + gloss +
       '<circle cx="40" cy="40" r="17" fill="url(#g-sun)"/>' +
       '<path d="M30 79h42a14 14 0 0 0 1-28 18 18 0 0 0-34-3 13 13 0 0 0-9 31z" fill="url(#g-cloud)" filter="url(#g-drop)"/>' },
-    { name: 'Calendar', art: bg('g-cal-bg') +
-      '<path d="M0 23A23 23 0 0 1 23 0h54a23 23 0 0 1 23 23v7H0z" fill="url(#g-cal-top)"/>' +
-      `<text x="50" y="21.5" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="15" font-weight="700" fill="#fff" letter-spacing="1">${month}</text>` +
-      `<text x="50" y="80" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="48" font-weight="500" fill="#1d2230">${now.getDate()}</text>` },
+    { name: 'Valerie browser', run: 1, href: 'https://cullen-b.github.io/valerie/', art: bg('g-val-bg') +
+      '<rect width="100" height="100" rx="23" fill="url(#g-val-glow)"/>' +
+      '<path d="M26.5 29.1 43.9 72.8Q50 86.4 56.1 72.8L73.5 29.1" fill="none" stroke="url(#g-val-v)" stroke-width="11.2" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="77.9" cy="74.8" r="6.6" fill="#ff7ab6"/>' },
+    { name: 'Files', art: bg('g-files-bg') +
+      '<path d="M17 29a5 5 0 0 1 5-5h17l7 7h32a5 5 0 0 1 5 5v38a6 6 0 0 1-6 6H23a6 6 0 0 1-6-6z" fill="url(#g-files-back)"/>' +
+      '<path d="M13 43a5 5 0 0 1 5-5h64a5 5 0 0 1 5 5v31a6 6 0 0 1-6 6H19a6 6 0 0 1-6-6z" fill="url(#g-files-front)" filter="url(#g-drop)"/>' +
+      '<path d="M18 42.5h64" stroke="#fff" stroke-opacity=".6" stroke-width="2" stroke-linecap="round"/>' },
   ];
   const icon = (i) => `<svg viewBox="0 0 100 100" aria-hidden="true">${APPS[i].art}</svg>`;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -352,7 +355,11 @@
     appEl.style.setProperty('--fy', `${r.top + r.height / 2 - H / 2}px`);
     appEl.style.setProperty('--tx', `${tx}px`);
     appEl.style.setProperty('--ty', `${ty - H / 2}px`);
-    appEl.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>${APPS[i].name}</span></div><div class="body">${icon(i)}</div>`;
+    const a = APPS[i];
+    if (a.href) window.open(a.href, '_blank', 'noopener');
+    if (a.download) location.href = a.download;
+    if (a.copy) copyPrompt();
+    appEl.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>${a.title || a.name}</span></div><div class="body">${icon(i)}</div>`;
     hide();
     appEl.classList.remove('pop');
     appEl.classList.add('show');
@@ -494,7 +501,7 @@
   const ask = document.querySelector('.ask');
   const askStatus = document.getElementById('ask-status');
   let askTimer;
-  ask.addEventListener('click', async () => {
+  async function copyPrompt() {
     try { await navigator.clipboard.writeText(PROMPT); }
     catch {
       const t = document.createElement('textarea');
@@ -505,7 +512,8 @@
     askStatus.textContent = 'Install prompt copied';
     clearTimeout(askTimer);
     askTimer = setTimeout(() => { ask.classList.remove('copied'); askStatus.textContent = ''; }, 2400);
-  });
+  }
+  ask.addEventListener('click', copyPrompt);
 
   resize();
   follower.style.transform = `translate(${fx}px, ${fy}px)`;
