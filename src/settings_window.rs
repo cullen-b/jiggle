@@ -25,6 +25,7 @@ struct State {
 thread_local! {
     static STATE: OnceCell<State> = const { OnceCell::new() };
     static OPACITY_LABEL: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
+    static SHAKE_LABEL: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
     // Shown under the shortcut row after a key press that can't be a shortcut on its own.
     static SHORTCUT_HINT: Cell<bool> = const { Cell::new(false) };
 }
@@ -47,6 +48,12 @@ define_class!(
         fn opacity_changed(&self, slider: &NSSlider) {
             settings::set_opacity_percent(slider.integerValue());
             set_opacity_label(settings::opacity_percent());
+        }
+
+        #[unsafe(method(shakeChanged:))]
+        fn shake_changed(&self, slider: &NSSlider) {
+            settings::set_shake_sensitivity(slider.integerValue());
+            set_shake_label(settings::shake_sensitivity());
         }
 
         #[unsafe(method(removeApp:))]
@@ -158,6 +165,16 @@ pub fn refresh() {
     }
 }
 
+const SHAKE_NAMES: [&str; 6] = ["Off", "Very firm", "Firm", "Normal", "Light", "Very light"];
+
+fn set_shake_label(level: isize) {
+    SHAKE_LABEL.with(|l| {
+        if let Some(l) = l.borrow().as_ref() {
+            l.setStringValue(&NSString::from_str(SHAKE_NAMES[level.clamp(0, 5) as usize]));
+        }
+    });
+}
+
 fn set_opacity_label(percent: isize) {
     OPACITY_LABEL.with(|l| {
         if let Some(l) = l.borrow().as_ref() {
@@ -233,7 +250,7 @@ fn rebuild(mtm: MainThreadMarker) {
         let hidden = settings::hidden_apps();
         let recording = shortcut::is_recording();
         let hint = recording && SHORTCUT_HINT.with(Cell::get);
-        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0
+        let height = MARGIN + 24.0 + 18.0 + 22.0 + 28.0 + 22.0 + 22.0 + 28.0 + 18.0 + 22.0
             + list_height(apps.len())
             + list_height(hidden.len())
             + 22.0 + 30.0 + if hint { 22.0 } else { 0.0 } + 20.0 + 48.0 + MARGIN;
@@ -273,6 +290,35 @@ fn rebuild(mtm: MainThreadMarker) {
         place(&content, &mut top, &value, WIDTH - MARGIN - 48.0, 48.0, 22.0, true);
         top -= 6.0;
         OPACITY_LABEL.with(|l| *l.borrow_mut() = Some(value));
+        top -= 16.0;
+
+        let heading = label("Shake sensitivity", mtm);
+        heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+        place(&content, &mut top, &heading, MARGIN, inner, 22.0, true);
+        let level = settings::shake_sensitivity();
+        let slider = unsafe {
+            NSSlider::sliderWithValue_minValue_maxValue_target_action(
+                level as f64,
+                0.0,
+                settings::MAX_SHAKE as f64,
+                Some(target),
+                Some(sel!(shakeChanged:)),
+                mtm,
+            )
+        };
+        slider.setNumberOfTickMarks(settings::MAX_SHAKE + 1);
+        slider.setAllowsTickMarkValuesOnly(true);
+        slider.setContinuous(true);
+        slider.setToolTip(Some(&NSString::from_str("Left needs a bigger, longer shake; Off opens Jiggle only with the shortcut")));
+        place(&content, &mut top, &slider, MARGIN, inner - 96.0, 28.0, false);
+        let value = label(SHAKE_NAMES[level as usize], mtm);
+        place(&content, &mut top, &value, WIDTH - MARGIN - 88.0, 88.0, 22.0, true);
+        top -= 6.0;
+        SHAKE_LABEL.with(|l| *l.borrow_mut() = Some(value));
+        let caption = label("Firmer needs a bigger shake. Off: open Jiggle with the shortcut only.", mtm);
+        caption.setFont(Some(&NSFont::systemFontOfSize(11.0)));
+        caption.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        place(&content, &mut top, &caption, MARGIN, inner, 18.0, true);
         top -= 16.0;
 
         app_list(&content, &mut top, &AppList {

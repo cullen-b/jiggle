@@ -31,6 +31,9 @@ const KEY_EXTRA_APPS: &str = "ExtraApps";
 const KEY_SHORTCUT: &str = "Shortcut";
 const KEY_HIDDEN_APPS: &str = "HiddenApps";
 const KEY_APP_ORDER: &str = "AppOrder";
+const KEY_SHAKE: &str = "ShakeSensitivity";
+pub const DEFAULT_SHAKE: isize = 3;
+pub const MAX_SHAKE: isize = 5;
 const DEFAULT_OPACITY: isize = 80;
 pub const MIN_OPACITY: isize = 10;
 const OPACITIES: [isize; 5] = [20, 40, 60, 80, 100];
@@ -83,6 +86,19 @@ fn set_in_list(key: &str, path: &str, on: bool) {
         apps.push(path.to_string());
     }
     write_list(key, &apps);
+}
+
+/// How easily a mouse shake opens the ring: 0 = off, 1 (firm) to 5 (light); 3 when unset.
+pub fn shake_sensitivity() -> isize {
+    let key = NSString::from_str(KEY_SHAKE);
+    if defaults().objectForKey(&key).is_none() {
+        return DEFAULT_SHAKE;
+    }
+    defaults().integerForKey(&key).clamp(0, MAX_SHAKE)
+}
+
+pub fn set_shake_sensitivity(level: isize) {
+    defaults().setInteger_forKey(level.clamp(0, MAX_SHAKE), &NSString::from_str(KEY_SHAKE));
 }
 
 /// The ring's app order (every app ever shown, in order); see `order.rs`.

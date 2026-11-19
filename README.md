@@ -55,6 +55,7 @@ time the ring opens; no restart needed.
 | `RingOpacity` | int, 10–100 | `80` | Opacity of the ring's background, in percent |
 | `ExtraApps` | array of `.app` paths | empty | Apps always shown in the ring, even when closed and not in the Dock |
 | `HiddenApps` | array of `.app` paths | empty | Apps never shown in the ring, even when open or in the Dock |
+| `ShakeSensitivity` | int, 0–5 | `3` | How easily a mouse shake opens the ring: `1` very firm … `5` very light; `0` turns shaking off (use the shortcut) |
 | `AppOrder` | array of `.app` paths | filled in as apps first appear | The ring's order, clockwise from 12 o'clock. Apps not listed go at the end; dragging in the ring rewrites it |
 | `Shortcut` | string | unset (off) | System-wide shortcut that opens and closes the ring, e.g. `ctrl+opt+space`. Modifiers: `cmd`, `ctrl`, `opt`, `shift`; key: a letter, digit, `space`, `return`, `tab`, `f1`–`f20`, an arrow (`left`…), or `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `quote`, `backslash`, `grave`, `leftbracket`, `rightbracket`, `delete`. Needs `cmd`, `ctrl` or `opt` unless it's an F-key |
 
@@ -65,6 +66,7 @@ defaults write local.jiggle RingOpacity -int 60
 defaults write local.jiggle ExtraApps -array-add "/System/Applications/Notes.app"
 defaults write local.jiggle ExtraApps -array "/Applications/Safari.app" "/System/Applications/Notes.app"
 defaults write local.jiggle HiddenApps -array-add "/System/Applications/Messages.app"
+defaults write local.jiggle ShakeSensitivity -int 4                     # a lighter shake opens it
 defaults write local.jiggle Shortcut -string "ctrl+opt+space"           # turn the shortcut on
 defaults delete local.jiggle Shortcut                                   # turn it off again
 defaults delete local.jiggle RingOpacity                                # back to the default
@@ -72,5 +74,5 @@ defaults delete local.jiggle RingOpacity                                # back t
 
 ## Tuning
 
-Compile-time constants at the top of `src/main.rs`: `SHAKE_REVERSALS`, `SHAKE_MIN_LEG`, `SHAKE_WINDOW` (shake
-sensitivity), `ICON`, `DISMISS_DISTANCE`.
+Compile-time constants at the top of `src/main.rs`: `ICON`, `DISMISS_DISTANCE`, and the aiming feel
+(`AIM_GROW`, `AIM_ICON_GROW`). Shake sensitivity is a setting (above); `shake_params` maps its levels.
