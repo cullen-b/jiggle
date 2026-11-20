@@ -45,7 +45,8 @@ fn shake_params(level: isize) -> Option<ShakeParams> {
         1 => (6, 70.0, 700),
         2 => (5, 55.0, 650),
         3 => (4, 40.0, 600),
-        4 => (3, 32.0, 600),
+        4 => (3, 38.0, 600),
+        5 => (3, 32.0, 600),
         _ => (3, 22.0, 650),
     };
     Some(ShakeParams { reversals, min_leg, window: Duration::from_millis(ms) })
@@ -1081,7 +1082,7 @@ mod tests {
         assert_eq!(shake_params(0), None);
         assert_eq!(shake_params(3), Some(ShakeParams { reversals: 4, min_leg: 40.0, window: Duration::from_millis(600) }));
         // Each step up is never harder than the one before.
-        for l in 1..5 {
+        for l in 1..settings::MAX_SHAKE {
             let (a, b) = (shake_params(l).unwrap(), shake_params(l + 1).unwrap());
             assert!(b.reversals <= a.reversals && b.min_leg < a.min_leg);
         }
@@ -1093,7 +1094,7 @@ mod tests {
             let d = if leg % 2 == 0 { 6.0 } else { -6.0 };
             for _ in 0..4 {
                 normal.feed(d, now, &shake_params(3).unwrap());
-                light.feed(d, now, &shake_params(5).unwrap());
+                light.feed(d, now, &shake_params(settings::MAX_SHAKE).unwrap());
             }
         }
         assert_eq!(normal.flips.len(), 0);

@@ -170,12 +170,12 @@ pub fn refresh() {
     }
 }
 
-const SHAKE_NAMES: [&str; 6] = ["Off", "Very firm", "Firm", "Normal", "Light", "Very light"];
+const SHAKE_NAMES: [&str; 7] = ["Off", "Very firm", "Firm", "Normal", "Medium", "Light", "Very light"];
 
 fn set_shake_label(level: isize) {
     SHAKE_LABEL.with(|l| {
         if let Some(l) = l.borrow().as_ref() {
-            l.setStringValue(&NSString::from_str(SHAKE_NAMES[level.clamp(0, 5) as usize]));
+            l.setStringValue(&NSString::from_str(SHAKE_NAMES[level.clamp(0, settings::MAX_SHAKE) as usize]));
         }
     });
 }
