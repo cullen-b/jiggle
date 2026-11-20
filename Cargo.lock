@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "jiggle"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "objc2",
  "objc2-app-kit",
